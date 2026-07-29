@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.lovelace</groupId>
+        <artifactId>LoveCore</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>lovecore-api</artifactId>
+    <packaging>jar</packaging>
+
+    <name>lovecore-api</name>
+    <description>Тонкий jar: интерфейсы, события и DTO ядра. Без состояния и логики.</description>
+
+    <!--
+        Здесь не должно появиться ни одной зависимости сверх paper-api: этот jar подключают
+        пятнадцать плагинов в scope provided, и всё, что сюда попадёт, попадёт к ним всем.
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>io.papermc.paper</groupId>
+            <artifactId>paper-api</artifactId>
+            <version>${paper.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

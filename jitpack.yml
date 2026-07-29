@@ -1,0 +1,12 @@
+# JitPack по умолчанию запускает ./mvnw, а обёртки Maven в репозитории нет —
+# сборка падала с "No such file or directory". Штатный же mvn на образе JitPack
+# слишком старый для maven-compiler-plugin 3.13, поэтому берём свежий Maven
+# отдельно: так сборка на JitPack чинится, не трогая сборку в CI и локально.
+#
+# Без этого файла соседние плагины не смогут подключить lovecore-api: JitPack
+# промолчит, а зависимость просто не разрешится.
+jdk:
+  - openjdk21
+install:
+  - curl -sSL https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz | tar xz -C /tmp
+  - /tmp/apache-maven-3.9.9/bin/mvn clean install -DskipTests -B

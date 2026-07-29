@@ -1,0 +1,37 @@
+name: LoveCore
+version: '${project.version}'
+main: dev.lovelace.lovecore.LoveCorePlugin
+api-version: '1.21.11'
+authors: [ lovelace ]
+description: 'Общее ядро экосистемы Love*: реестр служб, кошелёк, боевое состояние, шина статистики.'
+
+# Ядро поднимается раньше всех, кто у него спрашивает: службы должны быть в ServicesManager
+# к моменту, когда сосед впервые их запросит.
+loadbefore:
+  - LoveShop
+  - LoveClans
+  - LoveClaims
+  - LoveHunt
+  - LoveBrew
+  - LoveTrades
+  - LoveTweaks
+  - LoveSubnames
+  - LoveLeaderboards
+  - LoveChat
+  - LoveAdaptation
+  - LoveBehavior
+
+# softdepend на соседей здесь намеренно нет: он означал бы «грузиться после них» и вступил бы
+# в прямое противоречие с loadbefore выше. Классы соседей ядро берёт их собственными
+# загрузчиками, а связки поднимает на ServerLoadEvent, когда включились уже все.
+
+commands:
+  lovecore:
+    description: Показать, какие службы ядра поднялись.
+    usage: /lovecore
+    permission: lovecore.admin
+
+permissions:
+  lovecore.admin:
+    description: Доступ к служебной информации ядра.
+    default: op
