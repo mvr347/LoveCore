@@ -51,12 +51,63 @@ softdepend: [LoveCore]
 
 | Служба | Что отвечает | Источник |
 |---|---|---|
-| `LoveEconomy` | балансы, списание, перевод, журнал операций | своя база `economy.db` |
+| `LoveEconomy` | баланс, списание и выдача монет — физических предметов ItemsAdder в инвентаре игрока, с разменом | инвентарь игрока напрямую, без базы |
 | `CombatState` | в бою ли игрок, до какого момента и почему | свой учёт PvP + метки боевых плагинов |
 | `StatBus` | приём изменений метрик, рассылка `StatChangedEvent` | свой |
 | `ProfileOracle` | клан игрока, вражда, соклановцы | LoveClans |
 | `TerritoryOracle` | владелец точки, враждебность | LoveClaims |
 | `ReputationOracle` | репутация 0..100 и ступень | LoveBehavior |
+
+### LoveEconomy API
+
+Единая система валюты для всей экосистемы. Все деньги — физические предметы (монеты ItemsAdder) в инвентаре игрока, без виртуальных балансов.
+
+**Основные методы:**
+
+```java
+LoveEconomy economy = LoveCore.service(LoveEconomy.class).orElseThrow();
+
+// Получить баланс игрока (сумма всех монет)
+long balance = economy.balance(player);
+
+// Проверить, достаточно ли монет
+boolean has = economy.has(player, 500);
+
+// Выдать монеты (с автоматическим разменом и overflow handling)
+economy.give(player, 500);
+
+// Списать монеты
+economy.charge(player, 500);
+
+// Проверить, поместится ли сумма в инвентарь
+boolean canFit = economy.canFit(player, 500);
+
+// Получить имя валюты
+String name = economy.currencyName();  // "Монеты"
+
+// Получить список номиналов
+List<Denomination> denoms = economy.denominations();
+```
+
+**Номиналы** (из конфига `economy.denominations`):
+
+```yaml
+economy:
+  denominations:
+    copper:      { item-id: 'itemsadder:copper_coin', value: 1 }
+    iron:        { item-id: 'itemsadder:iron_coin', value: 10 }
+    gold:        { item-id: 'itemsadder:gold_coin', value: 50 }
+    diamond:     { item-id: 'itemsadder:diamond_coin', value: 100 }
+    netherite:   { item-id: 'itemsadder:netherite_coin', value: 1000 }
+```
+
+Система автоматически дробит крупные номиналы и собирает мелкие: давая 250 монет, выдаст 2 золотых (100) + 5 железных (50).
+
+**Важно:**
+- `give()` и `charge()` округляют `double` до `long` (целые монеты)
+- Переполнение инвентаря → монеты падают на землю
+- Недостаток монет → отказ в операции (`charge()` ничего не делает)
+- Все операции синхронны и работают только с онлайн-игроками
 
 Первые три работают всегда. Три оракула поднимаются, только если найден соответствующий
 сосед, и на старте пишут в лог, нашёлся он или нет:
