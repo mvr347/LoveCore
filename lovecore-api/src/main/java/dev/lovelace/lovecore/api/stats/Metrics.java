@@ -17,6 +17,8 @@ public final class Metrics {
     public static final String BEVERAGES_BREWED = "brewer.beverages";
     public static final String TRADES_COMPLETED = "trades.completed";
     public static final String BALANCE = "balance";
+    public static final String CONTRACTS_FULFILLED = "contracts.player.fulfilled";
+    public static final String CONTRACTS_POSTED = "contracts.player.posted";
 
     // --- Клан ---
     public static final String CLAN_INFLUENCE = "clan.influence";
