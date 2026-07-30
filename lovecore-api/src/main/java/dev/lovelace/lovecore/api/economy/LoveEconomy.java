@@ -1,6 +1,7 @@
 package dev.lovelace.lovecore.api.economy;
 
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
 
@@ -49,4 +50,16 @@ public interface LoveEconomy {
 
     /** Поместится ли сумма монетами в инвентарь без учёта выпадения на землю. */
     boolean canFit(Player player, long amount);
+
+    /**
+     * Сколько единиц валюты стоит один предмет из стека, если это монета известного номинала.
+     * 0, если предмет не монета — так плагины отличают деньги от товара, не зная деталей
+     * ItemsAdder (например, чтобы не дать игроку продать скупщику собственные монеты).
+     */
+    long valueOf(ItemStack stack);
+
+    /** Монета ли предмет — {@code valueOf(stack) > 0}. */
+    default boolean isCoin(ItemStack stack) {
+        return valueOf(stack) > 0;
+    }
 }

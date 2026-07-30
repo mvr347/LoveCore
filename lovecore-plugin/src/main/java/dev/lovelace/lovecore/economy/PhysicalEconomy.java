@@ -223,7 +223,8 @@ public final class PhysicalEconomy implements LoveEconomy {
         return (ItemStack) itemsAdder.call(getItemStack, customStack);
     }
 
-    private long valueOf(ItemStack stack) {
+    @Override
+    public long valueOf(ItemStack stack) {
         if (stack == null || stack.getType() == Material.AIR) {
             return 0;
         }
