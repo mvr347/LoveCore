@@ -8,6 +8,16 @@ economy:
   # Название валюты для показа игроку.
   currency-name: "монет"
 
+  # Номиналы монет ItemsAdder и сколько единиц валюты стоит один такой предмет.
+  # ID — без namespace или с ним, сравнивается одинаково (например, и "gold_coin", и
+  # "currency:gold_coin" совпадут с ItemsAdder-предметом currency:gold_coin).
+  denominations:
+    copper_coin: 1
+    iron_coin: 10
+    gold_coin: 50
+    diamond_coin: 100
+    netherite_coin: 1000
+
 combat:
   # Сколько секунд игрок считается в бою после удара по игроку или от игрока.
   # 0 — собственный учёт PvP отключён: остаются только метки соседей и явные вызовы

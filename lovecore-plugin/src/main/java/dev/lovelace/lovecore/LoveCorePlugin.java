@@ -7,7 +7,7 @@ import dev.lovelace.lovecore.api.social.ReputationOracle;
 import dev.lovelace.lovecore.api.stats.StatBus;
 import dev.lovelace.lovecore.api.territory.TerritoryOracle;
 import dev.lovelace.lovecore.combat.CombatTracker;
-import dev.lovelace.lovecore.economy.LedgerEconomy;
+import dev.lovelace.lovecore.economy.PhysicalEconomy;
 import dev.lovelace.lovecore.social.BehaviorReputationOracle;
 import dev.lovelace.lovecore.social.ClansProfileOracle;
 import dev.lovelace.lovecore.stats.BufferedStatBus;
@@ -22,11 +22,9 @@ import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.logging.Level;
 
 /**
  * Ядро экосистемы Love*: реестр служб, кошелёк, боевое состояние, шина статистики.
@@ -39,7 +37,6 @@ import java.util.logging.Level;
 public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
     private BufferedStatBus statBus;
-    private LedgerEconomy economy;
     private CombatTracker combat;
     private final List<String> registered = new ArrayList<>();
 
@@ -51,17 +48,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         statBus.start();
         register(StatBus.class, statBus, "StatBus");
 
-        economy = new LedgerEconomy(this, statBus);
-        try {
-            economy.initialize();
-            register(LoveEconomy.class, economy, "LoveEconomy");
-        } catch (SQLException e) {
-            // Без базы кошелёк отдавать нельзя: он бы врал про балансы. Остальные службы
-            // при этом работают — ядро не обязано падать целиком из-за одной из них.
-            getLogger().log(Level.SEVERE, "Экономика не поднялась, служба LoveEconomy "
-                    + "не зарегистрирована.", e);
-            economy = null;
-        }
+        register(LoveEconomy.class, new PhysicalEconomy(this), "LoveEconomy");
 
         combat = new CombatTracker(this);
         combat.start();
@@ -88,9 +75,6 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         }
         if (statBus != null) {
             statBus.shutdown();
-        }
-        if (economy != null) {
-            economy.shutdown();
         }
         Bukkit.getServicesManager().unregisterAll(this);
     }
