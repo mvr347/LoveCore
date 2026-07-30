@@ -17,6 +17,7 @@ public final class Metrics {
     public static final String BEVERAGES_BREWED = "brewer.beverages";
     public static final String TRADES_COMPLETED = "trades.completed";
     public static final String BALANCE = "balance";
+    public static final String CONTRACTS_COMPLETED = "contracts.completed";
     public static final String CONTRACTS_FULFILLED = "contracts.player.fulfilled";
     public static final String CONTRACTS_POSTED = "contracts.player.posted";
 
@@ -25,6 +26,7 @@ public final class Metrics {
     public static final String CLAN_WEALTH = "clan.wealth";
     public static final String CLAN_WARS_WON = "clan.wars.won";
     public static final String CLAN_TERRITORIES = "clan.territories";
+    public static final String CLAN_CONTRACTS_COMPLETED = "clan.contracts.completed";
 
     private Metrics() {
     }

@@ -30,6 +30,7 @@ public final class BehaviorReputationOracle implements ReputationOracle {
     private final Method playerData;
     private final Method politenessPoints;
     private final Method playstylePoints;
+    private final Method addPolitenessPoints;
     private final int maxPoints;
     private final int unknownReputation;
     private final int badFrom;
@@ -43,6 +44,7 @@ public final class BehaviorReputationOracle implements ReputationOracle {
         this.playerData = neighbour.method(apiClass, "getPlayerData", UUID.class);
         this.politenessPoints = neighbour.method(apiClass, "getPolitenessPoints", UUID.class);
         this.playstylePoints = neighbour.method(apiClass, "getPlaystylePoints", UUID.class);
+        this.addPolitenessPoints = neighbour.method(apiClass, "addPolitenessPoints", UUID.class, int.class);
 
         ConfigurationSection section = plugin.getConfig().getConfigurationSection("reputation");
         this.maxPoints = Math.max(1, section == null ? 7000 : section.getInt("max-points", 7000));
@@ -111,6 +113,14 @@ public final class BehaviorReputationOracle implements ReputationOracle {
             return Tier.BAD;
         }
         return Tier.OUTCAST;
+    }
+
+    @Override
+    public void modify(UUID playerId, int delta) {
+        if (playerId == null || api == null || addPolitenessPoints == null) {
+            return;
+        }
+        neighbour.call(addPolitenessPoints, api, playerId, delta);
     }
 
     private Integer points(Method method, UUID playerId) {

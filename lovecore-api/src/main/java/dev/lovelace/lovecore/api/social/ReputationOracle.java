@@ -23,4 +23,15 @@ public interface ReputationOracle {
     int reputation(UUID playerId);
 
     Tier tier(UUID playerId);
+
+    /**
+     * Изменить репутацию игрока на delta (может быть отрицательной).
+     *
+     * <p>Изменение применяется к шкале вежливости (politeness). Если LoveBehavior не установлен,
+     * операция молча игнорируется.</p>
+     *
+     * @param playerId UUID игрока
+     * @param delta количество баллов для добавления (отрицательное = вычитание)
+     */
+    void modify(UUID playerId, int delta);
 }
