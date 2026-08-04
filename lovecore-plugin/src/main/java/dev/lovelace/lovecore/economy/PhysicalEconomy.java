@@ -25,8 +25,8 @@ import java.util.List;
  */
 public final class PhysicalEconomy implements LoveEconomy {
 
-    private final String currencyName;
-    private final List<Denomination> denominations;
+    private String currencyName;
+    private List<Denomination> denominations;
     private final Neighbour itemsAdder;
     private final Method byItemStack;
     private final Method getNamespacedId;
@@ -44,6 +44,13 @@ public final class PhysicalEconomy implements LoveEconomy {
         this.getInstance = itemsAdder.method(customStackClass, "getInstance", String.class);
         this.getItemStack = itemsAdder.method(customStackClass, "getItemStack");
         itemsAdder.report("валюта");
+    }
+
+    /** Re-reads currency name and denominations from config.yml. Everything else (the
+     *  ItemsAdder reflection bridge) is independent of config and stays as-is. */
+    public void reload(Plugin plugin) {
+        this.currencyName = plugin.getConfig().getString("economy.currency-name", "монет");
+        this.denominations = loadDenominations(plugin);
     }
 
     private static List<Denomination> loadDenominations(Plugin plugin) {

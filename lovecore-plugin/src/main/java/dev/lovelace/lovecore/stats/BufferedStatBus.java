@@ -52,7 +52,7 @@ public final class BufferedStatBus implements StatBus {
     }
 
     private final Plugin plugin;
-    private final long flushIntervalTicks;
+    private long flushIntervalTicks;
     private final Map<Key, Pending> pending = new LinkedHashMap<>();
     private BukkitTask flushTask;
 
@@ -78,6 +78,18 @@ public final class BufferedStatBus implements StatBus {
         // Досылаем накопленное: иначе последние секунды перед остановкой сервера
         // не доедут до топов.
         flush();
+    }
+
+    /** Re-reads {@code stats.flush-interval-ticks} and restarts the flush task on the new period,
+     *  flushing whatever was pending under the old one first so nothing is lost in the gap. */
+    public void reload() {
+        if (flushTask != null) {
+            flushTask.cancel();
+            flushTask = null;
+        }
+        flush();
+        this.flushIntervalTicks = Math.max(0L, plugin.getConfig().getLong("stats.flush-interval-ticks", 20L));
+        start();
     }
 
     @Override

@@ -38,6 +38,10 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
     private BufferedStatBus statBus;
     private CombatTracker combat;
+    private PhysicalEconomy economy;
+    private ProfileOracle profileOracle;
+    private TerritoryOracle territoryOracle;
+    private ReputationOracle reputationOracle;
     private final List<String> registered = new ArrayList<>();
 
     @Override
@@ -48,7 +52,8 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         statBus.start();
         register(StatBus.class, statBus, "StatBus");
 
-        register(LoveEconomy.class, new PhysicalEconomy(this), "LoveEconomy");
+        economy = new PhysicalEconomy(this);
+        register(LoveEconomy.class, economy, "LoveEconomy");
 
         combat = new CombatTracker(this);
         combat.start();
@@ -82,6 +87,12 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
                              @NotNull String label, @NotNull String[] args) {
+        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
+            reload();
+            sender.sendMessage("LoveCore перезагружен, служб зарегистрировано: " + registered.size() + ".");
+            return true;
+        }
+
         sender.sendMessage("LoveCore " + getPluginMeta().getVersion() + ", служб: " + registered.size());
         for (String service : registered) {
             sender.sendMessage(" - " + service);
@@ -93,6 +104,19 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     }
 
     /**
+     * Перечитывает config.yml и применяет его вживую: экономику и бой — на месте (обновляя
+     * их внутренние поля), а оракулов — переподключением, раз соседи могли появиться,
+     * пропасть или сами перезагрузиться с момента старта ядра.
+     */
+    private void reload() {
+        reloadConfig();
+        economy.reload(this);
+        combat.reload();
+        statBus.reload();
+        relinkOracles();
+    }
+
+    /**
      * Поднимает оракулы поверх соседей и говорит вслух, какие связки нашлись.
      *
      * <p>Именно этого сегодня не хватило больше всего: три интеграции звали классы, которых
@@ -100,13 +124,42 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
      */
     private void linkOracles() {
         Optional<ClansProfileOracle> clans = ClansProfileOracle.link(getLogger());
-        clans.ifPresent(oracle -> register(ProfileOracle.class, oracle, "ProfileOracle"));
+        clans.ifPresent(oracle -> {
+            profileOracle = oracle;
+            register(ProfileOracle.class, oracle, "ProfileOracle");
+        });
 
         ClaimsTerritoryOracle.link(this, clans.orElse(null))
-                .ifPresent(oracle -> register(TerritoryOracle.class, oracle, "TerritoryOracle"));
+                .ifPresent(oracle -> {
+                    territoryOracle = oracle;
+                    register(TerritoryOracle.class, oracle, "TerritoryOracle");
+                });
 
         BehaviorReputationOracle.link(this)
-                .ifPresent(oracle -> register(ReputationOracle.class, oracle, "ReputationOracle"));
+                .ifPresent(oracle -> {
+                    reputationOracle = oracle;
+                    register(ReputationOracle.class, oracle, "ReputationOracle");
+                });
+    }
+
+    /** Отключает уже поднятые оракулы (если были) и пытается поднять их заново. */
+    private void relinkOracles() {
+        if (profileOracle != null) {
+            Bukkit.getServicesManager().unregister(ProfileOracle.class, profileOracle);
+            registered.remove("ProfileOracle");
+            profileOracle = null;
+        }
+        if (territoryOracle != null) {
+            Bukkit.getServicesManager().unregister(TerritoryOracle.class, territoryOracle);
+            registered.remove("TerritoryOracle");
+            territoryOracle = null;
+        }
+        if (reputationOracle != null) {
+            Bukkit.getServicesManager().unregister(ReputationOracle.class, reputationOracle);
+            registered.remove("ReputationOracle");
+            reputationOracle = null;
+        }
+        linkOracles();
     }
 
     /**

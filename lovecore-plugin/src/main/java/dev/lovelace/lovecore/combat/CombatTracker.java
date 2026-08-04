@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.metadata.MetadataValue;
@@ -38,10 +39,11 @@ public final class CombatTracker implements CombatState, Listener {
     }
 
     private final Plugin plugin;
-    private final Duration pvpDuration;
-    private final List<String> externalKeys;
+    private Duration pvpDuration;
+    private List<String> externalKeys;
     private final Map<UUID, Combat> combats = new ConcurrentHashMap<>();
     private BukkitTask purgeTask;
+    private boolean listenerRegistered;
 
     public CombatTracker(Plugin plugin) {
         this.plugin = plugin;
@@ -53,6 +55,7 @@ public final class CombatTracker implements CombatState, Listener {
     public void start() {
         if (!pvpDuration.isZero()) {
             Bukkit.getPluginManager().registerEvents(this, plugin);
+            listenerRegistered = true;
         } else {
             plugin.getLogger().info("Бой: собственный учёт PvP отключён (combat.duration-seconds: 0).");
         }
@@ -66,6 +69,27 @@ public final class CombatTracker implements CombatState, Listener {
             purgeTask = null;
         }
         combats.clear();
+    }
+
+    /**
+     * Re-reads {@code combat.duration-seconds} and {@code combat.external-metadata-keys}.
+     * Toggling duration to/from zero registers or unregisters the PvP listener live -
+     * without this, flipping the setting via reload would silently do nothing until restart.
+     */
+    public void reload() {
+        this.pvpDuration = Duration.ofSeconds(Math.max(0L, plugin.getConfig().getLong("combat.duration-seconds", 15L)));
+        this.externalKeys = plugin.getConfig().getStringList("combat.external-metadata-keys");
+
+        boolean shouldTrack = !pvpDuration.isZero();
+        if (shouldTrack && !listenerRegistered) {
+            Bukkit.getPluginManager().registerEvents(this, plugin);
+            listenerRegistered = true;
+            plugin.getLogger().info("Бой: собственный учёт PvP включён (combat.duration-seconds: " + pvpDuration.getSeconds() + ").");
+        } else if (!shouldTrack && listenerRegistered) {
+            HandlerList.unregisterAll(this);
+            listenerRegistered = false;
+            plugin.getLogger().info("Бой: собственный учёт PvP отключён (combat.duration-seconds: 0).");
+        }
     }
 
     @Override
