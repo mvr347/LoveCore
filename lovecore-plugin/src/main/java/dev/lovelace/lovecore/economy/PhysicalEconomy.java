@@ -18,25 +18,44 @@ import java.util.List;
 /**
  * Валюта как физические предметы ItemsAdder в инвентаре игрока.
  *
- * <p>Мост к ItemsAdder — рефлексия через {@link Neighbour}, тем же приёмом, что и у оракулов:
+ * <p>Мост к ItemsAdder — рефлексия через {@link Neighbour}, тем же приёмом, что и у оракулов.
  * ItemsAdder — softdepend, его может не быть на сервере, и ядро не должно падать из-за этого.
  * Без ItemsAdder номинал ни у одного предмета не находится — баланс всегда 0, списание и
  * выдача молча ничего не делают.</p>
+ *
+ * <p>По той же причине, по которой оракулы в {@code LoveCorePlugin} поднимаются не в
+ * {@code onEnable()}, а на {@code ServerLoadEvent}: ядро объявлено в {@code loadbefore} у
+ * своих соседей, но softdepend на ItemsAdder у него намеренно нет (иначе ядро грузилось бы
+ * позже тех, кто в нём нуждается) — порядок между ядром и ItemsAdder никем не гарантирован.
+ * Если связка резолвится один раз в конструкторе (вызывается из {@code onEnable()}), а
+ * ItemsAdder в этот момент ещё не включился, {@link Neighbour} навсегда запоминает «сосед не
+ * найден» — методы отражения остаются {@code null} до перезапуска сервера, и валюта не
+ * работает вообще, хотя ItemsAdder мгновением позже включается штатно. Поэтому резолвинг
+ * вынесен в отдельный {@link #linkItemsAdder(Plugin)}, который {@code LoveCorePlugin} зовёт
+ * повторно на {@code ServerLoadEvent} — когда включились уже все.</p>
  */
 public final class PhysicalEconomy implements LoveEconomy {
 
     private String currencyName;
     private List<Denomination> denominations;
-    private final Neighbour itemsAdder;
-    private final Method byItemStack;
-    private final Method getNamespacedId;
-    private final Method getInstance;
-    private final Method getItemStack;
+    private Neighbour itemsAdder;
+    private Method byItemStack;
+    private Method getNamespacedId;
+    private Method getInstance;
+    private Method getItemStack;
 
     public PhysicalEconomy(Plugin plugin) {
         this.currencyName = plugin.getConfig().getString("economy.currency-name", "монет");
         this.denominations = loadDenominations(plugin);
+        linkItemsAdder(plugin);
+    }
 
+    /**
+     * (Пере)резолвит мост к ItemsAdder. Безопасно звать повторно: первый раз — из
+     * конструктора (на случай, если ItemsAdder уже включён к этому моменту), второй —
+     * из {@code LoveCorePlugin#onServerLoad}, когда включились уже все соседи.
+     */
+    public void linkItemsAdder(Plugin plugin) {
         this.itemsAdder = Neighbour.of(plugin.getLogger(), "ItemsAdder");
         Class<?> customStackClass = itemsAdder.type("dev.lone.itemsadder.api.CustomStack");
         this.byItemStack = itemsAdder.method(customStackClass, "byItemStack", ItemStack.class);
@@ -46,11 +65,12 @@ public final class PhysicalEconomy implements LoveEconomy {
         itemsAdder.report("валюта");
     }
 
-    /** Re-reads currency name and denominations from config.yml. Everything else (the
-     *  ItemsAdder reflection bridge) is independent of config and stays as-is. */
+    /** Re-reads currency name and denominations from config.yml, and re-resolves the
+     *  ItemsAdder bridge in case it wasn't up yet at startup (or was reloaded since). */
     public void reload(Plugin plugin) {
         this.currencyName = plugin.getConfig().getString("economy.currency-name", "монет");
         this.denominations = loadDenominations(plugin);
+        linkItemsAdder(plugin);
     }
 
     private static List<Denomination> loadDenominations(Plugin plugin) {

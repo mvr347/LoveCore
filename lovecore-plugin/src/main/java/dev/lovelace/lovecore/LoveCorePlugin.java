@@ -68,6 +68,10 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onServerLoad(ServerLoadEvent event) {
+        // Экономика (мост к ItemsAdder) резолвится ещё раз здесь по той же причине, что и
+        // оракулы ниже: ItemsAdder мог ещё не включиться, когда ядро строило PhysicalEconomy
+        // в onEnable() — тогда номиналы монет не находились бы вообще до перезапуска сервера.
+        economy.linkItemsAdder(this);
         linkOracles();
         getLogger().info("LoveCore готов, служб зарегистрировано: " + registered.size()
                 + " (" + String.join(", ", registered) + ").");
