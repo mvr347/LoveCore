@@ -27,8 +27,8 @@ loadbefore:
 
 commands:
   lovecore:
-    description: Показать, какие службы ядра поднялись.
-    usage: /lovecore
+    description: Показать, какие службы ядра поднялись, или /lovecore reload.
+    usage: /lovecore [reload]
     permission: lovecore.admin
 
 permissions:
