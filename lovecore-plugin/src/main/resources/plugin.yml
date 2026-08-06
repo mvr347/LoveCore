@@ -1,7 +1,7 @@
 name: LoveCore
 version: '${project.version}'
 main: dev.lovelace.lovecore.LoveCorePlugin
-api-version: '1.21.11'
+api-version: '26.2'
 authors: [ lovelace ]
 description: 'Общее ядро экосистемы Love*: реестр служб, кошелёк, боевое состояние, шина статистики.'
 

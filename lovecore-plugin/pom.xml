@@ -42,7 +42,7 @@
     </dependencies>
 
     <build>
-        <finalName>LoveCore-${project.version}</finalName>
+        <finalName>LoveCore</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
