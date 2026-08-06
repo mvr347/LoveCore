@@ -7,22 +7,21 @@ import dev.lovelace.lovecore.api.social.ReputationOracle;
 import dev.lovelace.lovecore.api.stats.StatBus;
 import dev.lovelace.lovecore.api.territory.TerritoryOracle;
 import dev.lovelace.lovecore.combat.CombatTracker;
+import dev.lovelace.lovecore.commands.LoveCoreAdminCommand;
 import dev.lovelace.lovecore.economy.PhysicalEconomy;
 import dev.lovelace.lovecore.social.BehaviorReputationOracle;
 import dev.lovelace.lovecore.social.ClansProfileOracle;
 import dev.lovelace.lovecore.stats.BufferedStatBus;
 import dev.lovelace.lovecore.territory.ClaimsTerritoryOracle;
 import org.bukkit.Bukkit;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.server.ServerLoadEvent;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -59,6 +58,15 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         combat.start();
         register(CombatState.class, combat, "CombatState");
 
+        // Единая admin-команда ядра: /lovecoreadmin [reload], со старым /lovecore
+        // алиасом в plugin.yml — как у остальных плагинов экосистемы.
+        LoveCoreAdminCommand adminCommand = new LoveCoreAdminCommand(this);
+        var command = getCommand("lovecoreadmin");
+        if (command != null) {
+            command.setExecutor(adminCommand);
+            command.setTabCompleter(adminCommand);
+        }
+
         // Оракулы собираются из соседей, а соседи включаются после ядра — оно объявлено
         // в loadbefore. Поэтому связки поднимаются на ServerLoadEvent, когда включились все.
         Bukkit.getPluginManager().registerEvents(this, this);
@@ -88,23 +96,9 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         Bukkit.getServicesManager().unregisterAll(this);
     }
 
-    @Override
-    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
-                             @NotNull String label, @NotNull String[] args) {
-        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
-            reload();
-            sender.sendMessage("LoveCore перезагружен, служб зарегистрировано: " + registered.size() + ".");
-            return true;
-        }
-
-        sender.sendMessage("LoveCore " + getPluginMeta().getVersion() + ", служб: " + registered.size());
-        for (String service : registered) {
-            sender.sendMessage(" - " + service);
-        }
-        if (registered.size() < 6) {
-            sender.sendMessage("Часть служб не поднялась — причина написана в логе при старте.");
-        }
-        return true;
+    /** Список зарегистрированных служб для админ-команды ({@code /lovecoreadmin}). */
+    public List<String> getRegisteredServices() {
+        return Collections.unmodifiableList(registered);
     }
 
     /**
@@ -112,7 +106,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
      * их внутренние поля), а оракулов — переподключением, раз соседи могли появиться,
      * пропасть или сами перезагрузиться с момента старта ядра.
      */
-    private void reload() {
+    public void reload() {
         reloadConfig();
         economy.reload(this);
         combat.reload();

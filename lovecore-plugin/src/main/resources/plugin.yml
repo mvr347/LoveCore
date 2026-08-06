@@ -26,9 +26,10 @@ loadbefore:
 # загрузчиками, а связки поднимает на ServerLoadEvent, когда включились уже все.
 
 commands:
-  lovecore:
-    description: Показать, какие службы ядра поднялись, или /lovecore reload.
-    usage: /lovecore [reload]
+  lovecoreadmin:
+    description: Показать, какие службы ядра поднялись, или /lovecoreadmin reload.
+    usage: /lovecoreadmin [reload]
+    aliases: [lovecore]
     permission: lovecore.admin
 
 permissions:
