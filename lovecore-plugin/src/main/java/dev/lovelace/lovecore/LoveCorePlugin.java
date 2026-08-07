@@ -18,6 +18,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.server.ServerLoadEvent;
 import org.bukkit.plugin.ServicePriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
@@ -87,6 +88,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        HandlerList.unregisterAll(this);
         if (combat != null) {
             combat.shutdown();
         }
