@@ -20,20 +20,35 @@ import java.util.UUID;
  * <p>{@link #notifyInteractive} — отдельный путь для сообщений с кликабельными кнопками
  * (подтвердить/отменить и т.п.): они физически не могут отрендериться в title/actionbar,
  * поэтому всегда идут в чат и не подчиняются переключателям каналов вообще.</p>
+ *
+ * <p>Минимум один канал должен быть включён всегда — {@link #setChannelEnabled} отклоняет
+ * попытку выключить последний оставшийся канал (см. его javadoc), иначе игрок мог бы
+ * отключить всё и перестать видеть даже {@code important}-уведомления в реальном времени
+ * (запасной канал в {@link #notify} — это отдельная защита на момент отправки, а не замена
+ * этому правилу на момент настройки).</p>
  */
 public interface LoveNotify {
 
     enum Channel { CHAT, ACTION_BAR, TITLE }
 
-    /** Включённые у игрока каналы (по умолчанию — все три, до первого /lovenotify toggle). */
+    /** Включённые у игрока каналы (по умолчанию — только CHAT, до первого /lovenotify toggle). */
     Set<Channel> getEnabledChannels(UUID uuid);
 
     boolean isChannelEnabled(UUID uuid, Channel channel);
 
-    /** Переключает канал и возвращает новое состояние ({@code true} = теперь включён). */
+    /**
+     * Переключает канал. Если это попытка выключить последний оставшийся включённый канал —
+     * игнорируется (см. {@link #setChannelEnabled}), и возвращается прежнее состояние.
+     *
+     * @return итоговое состояние канала после операции ({@code true} = включён)
+     */
     boolean toggleChannel(UUID uuid, Channel channel);
 
-    void setChannelEnabled(UUID uuid, Channel channel, boolean enabled);
+    /**
+     * @return {@code true}, если изменение применено. {@code false} — попытка выключить
+     * последний оставшийся включённый канал была отклонена, состояние не изменилось.
+     */
+    boolean setChannelEnabled(UUID uuid, Channel channel, boolean enabled);
 
     /**
      * Показывает уведомление по запрошенным каналам, отфильтрованным настройками игрока.

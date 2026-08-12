@@ -38,14 +38,15 @@ public final class LoveNotifyImpl implements LoveNotify {
 
     @Override
     public boolean toggleChannel(UUID uuid, Channel channel) {
-        boolean newState = !isChannelEnabled(uuid, channel);
-        store.setChannelEnabled(uuid, channel, newState);
-        return newState;
+        boolean currentlyEnabled = isChannelEnabled(uuid, channel);
+        boolean desired = !currentlyEnabled;
+        boolean applied = store.setChannelEnabled(uuid, channel, desired);
+        return applied ? desired : currentlyEnabled;
     }
 
     @Override
-    public void setChannelEnabled(UUID uuid, Channel channel, boolean enabled) {
-        store.setChannelEnabled(uuid, channel, enabled);
+    public boolean setChannelEnabled(UUID uuid, Channel channel, boolean enabled) {
+        return store.setChannelEnabled(uuid, channel, enabled);
     }
 
     @Override

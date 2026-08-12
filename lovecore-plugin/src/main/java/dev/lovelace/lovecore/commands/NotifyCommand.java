@@ -48,7 +48,17 @@ public class NotifyCommand implements CommandExecutor, TabCompleter {
                 player.sendMessage(mm.deserialize("<red>Неизвестный канал. Доступные: chat, actionbar, title.</red>"));
                 return true;
             }
+            boolean wasEnabled = loveNotify.isChannelEnabled(player.getUniqueId(), channel);
             boolean nowEnabled = loveNotify.toggleChannel(player.getUniqueId(), channel);
+
+            if (wasEnabled && nowEnabled) {
+                // Попытка выключить канал ни к чему не привела — значит это был последний
+                // оставшийся включённый канал, и LoveNotify отклонил переключение.
+                player.sendMessage(mm.deserialize("<red>Нельзя выключить последний оставшийся канал! "
+                        + "Сначала включите другой (title/actionbar/chat), потом выключайте этот.</red>"));
+                return true;
+            }
+
             player.sendMessage(mm.deserialize(nowEnabled
                     ? "<green>✔ Уведомления в " + displayName(channel) + " включены.</green>"
                     : "<yellow>✖ Уведомления в " + displayName(channel) + " выключены.</yellow>"));

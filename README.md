@@ -66,6 +66,7 @@ softdepend: [LoveCore]
 | `ProfileOracle` | клан игрока, вражда, соклановцы | LoveClans |
 | `TerritoryOracle` | владелец точки, враждебность | LoveClaims |
 | `ReputationOracle` | репутация 0..100 и ступень | LoveBehavior |
+| `LoveNotify` | title/actionbar/chat как независимые каналы, переключаемые игроком | свой |
 
 ### LoveEconomy API
 
@@ -117,6 +118,67 @@ economy:
 - Переполнение инвентаря → монеты падают на землю
 - Недостаток монет → отказ в операции (`charge()` ничего не делает)
 - Все операции синхронны и работают только с онлайн-игроками
+
+### LoveNotify API
+
+Показ уведомлений игроку через три независимых канала — title, actionbar, chat — которые
+игрок сам включает и выключает в любой комбинации. Чат — гарантированный запасной канал:
+`important`-сообщения и всё, что не влезает в title/actionbar по длине, всегда доходят в чат
+независимо от переключателей.
+
+**Команды игрока:**
+
+| Команда | Алиасы | Что делает |
+|---|---|---|
+| `/lovenotify` | `/notify`, `/уведомления` | Показать текущее состояние всех трёх каналов |
+| `/lovenotify toggle chat` | | Включить/выключить чат |
+| `/lovenotify toggle actionbar` | | Включить/выключить action bar |
+| `/lovenotify toggle title` | | Включить/выключить title bar |
+
+Право `lovecore.notify` (по умолчанию есть у всех).
+
+**По умолчанию включён только чат** — title и actionbar игрок включает сам, если хочет.
+**Минимум один канал обязан быть включён всегда**: попытка выключить последний оставшийся
+канал отклоняется без изменений, `/lovenotify toggle` в этом случае отвечает игроку явным
+сообщением об ошибке вместо того, чтобы оставить его вообще без уведомлений.
+
+**Настройки хранятся в `notify-settings.yml`** (плоский YAML, ключ — UUID игрока), не в базе —
+это всего три булевых значения на игрока.
+
+**Плейсхолдеры** (требуют PlaceholderAPI) — для GUI переключения уведомлений (DeluxeMenus и
+подобные), значения `"true"`/`"false"`:
+
+```
+%lovecore_notify_chat%
+%lovecore_notify_actionbar%
+%lovecore_notify_title%
+```
+
+**API для плагинов:**
+
+```java
+LoveNotify notify = LoveCore.service(LoveNotify.class).orElseThrow();
+
+// Обычное уведомление по всем трём каналам, отфильтрованным настройками игрока
+notify.notify(player, Component.text("Готово!"));
+
+// Явный список каналов + важность (важное всегда доходит в чат)
+notify.notify(player, message, Set.of(Channel.CHAT, Channel.ACTION_BAR), true);
+
+// Сообщение с кнопками — всегда только в чат, без исключений
+notify.notifyInteractive(player, messageWithClickEvents);
+
+// Проверить/переключить канал программно
+boolean chatOn = notify.isChannelEnabled(player.getUniqueId(), Channel.CHAT);
+boolean applied = notify.setChannelEnabled(player.getUniqueId(), Channel.TITLE, false);
+```
+
+`setChannelEnabled` возвращает `false`, если отключение отклонено правилом «минимум один
+канал» — вызывающий код должен это проверять, а не считать вызов гарантированно успешным.
+
+Соседи без опубликованной (JitPack) версии `lovecore-api`, которая ещё не знает о
+`LoveNotify`, подключаются через reflection-мост поверх `ServicesManager` — см. пример
+`LoveNotifyBridge` в LoveBehavior/LoveClans/LoveHunt.
 
 Первые три работают всегда. Три оракула поднимаются, только если найден соответствующий
 сосед, и на старте пишут в лог, нашёлся он или нет:

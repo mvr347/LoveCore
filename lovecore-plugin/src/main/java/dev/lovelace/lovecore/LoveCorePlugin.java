@@ -75,6 +75,11 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
             notifyCmd.setTabCompleter(notifyCommand);
         }
 
+        if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            new dev.lovelace.lovecore.placeholders.NotifyPlaceholders(this, loveNotify).register();
+            getLogger().info("✓ PlaceholderAPI интеграция (LoveNotify) активирована.");
+        }
+
         // Единая admin-команда ядра: /lovecoreadmin [reload], со старым /lovecore
         // алиасом в plugin.yml — как у остальных плагинов экосистемы.
         LoveCoreAdminCommand adminCommand = new LoveCoreAdminCommand(this);

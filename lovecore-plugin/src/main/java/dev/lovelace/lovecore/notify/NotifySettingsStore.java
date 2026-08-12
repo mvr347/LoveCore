@@ -23,7 +23,10 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class NotifySettingsStore {
 
-    private static final Set<Channel> DEFAULT_CHANNELS = EnumSet.allOf(Channel.class);
+    // По умолчанию включён только чат — title/actionbar игрок включает сам через
+    // /lovenotify toggle, если хочет. Чат никогда не выключается автоматически: см.
+    // guaranteed-fallback правило в LoveNotify и минимум-один-канал ниже в setChannelEnabled.
+    private static final Set<Channel> DEFAULT_CHANNELS = EnumSet.of(Channel.CHAT);
 
     private final JavaPlugin plugin;
     private final File file;
@@ -45,7 +48,7 @@ public final class NotifySettingsStore {
                 UUID uuid = UUID.fromString(key);
                 EnumSet<Channel> enabled = EnumSet.noneOf(Channel.class);
                 for (Channel channel : Channel.values()) {
-                    if (yaml.getBoolean(key + "." + channel.name(), true)) {
+                    if (yaml.getBoolean(key + "." + channel.name(), DEFAULT_CHANNELS.contains(channel))) {
                         enabled.add(channel);
                     }
                 }
@@ -61,14 +64,25 @@ public final class NotifySettingsStore {
         return stored != null ? EnumSet.copyOf(stored) : EnumSet.copyOf(DEFAULT_CHANNELS);
     }
 
-    public void setChannelEnabled(UUID uuid, Channel channel, boolean enabled) {
+    /**
+     * @return {@code true}, если изменение применено. {@code false} — если это была попытка
+     * выключить последний оставшийся включённый канал (отклонено без изменений: минимум
+     * один канал должен быть включён всегда, иначе игрок не увидит вообще ничего).
+     */
+    public boolean setChannelEnabled(UUID uuid, Channel channel, boolean enabled) {
         EnumSet<Channel> current = settings.computeIfAbsent(uuid, k -> EnumSet.copyOf(DEFAULT_CHANNELS));
-        if (enabled) {
-            current.add(channel);
-        } else {
-            current.remove(channel);
+        synchronized (current) {
+            if (!enabled && current.size() == 1 && current.contains(channel)) {
+                return false;
+            }
+            if (enabled) {
+                current.add(channel);
+            } else {
+                current.remove(channel);
+            }
         }
         saveAsync();
+        return true;
     }
 
     private void saveAsync() {
