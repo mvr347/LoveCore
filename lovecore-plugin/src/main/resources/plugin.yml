@@ -39,6 +39,11 @@ commands:
     usage: /lovenotify [toggle <chat|actionbar|title>]
     aliases: [notify, уведомления]
     permission: lovecore.notify
+  tax:
+    description: Посмотреть свою ставку налога, или настроить её (админ).
+    usage: /tax [info|set <politeness|terrible|min|max|aggressive-bonus|trade-softening> <значение>|reload]
+    aliases: [налог]
+    permission: lovecore.tax
 
 permissions:
   lovecore.admin:
@@ -47,3 +52,9 @@ permissions:
   lovecore.notify:
     description: Право настраивать свои каналы уведомлений LoveNotify.
     default: true
+  lovecore.tax:
+    description: Право посмотреть свою ставку налога.
+    default: true
+  lovecore.tax.admin:
+    description: Право менять параметры налога.
+    default: op

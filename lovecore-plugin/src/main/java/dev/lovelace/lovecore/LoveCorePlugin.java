@@ -2,6 +2,7 @@ package dev.lovelace.lovecore;
 
 import dev.lovelace.lovecore.api.combat.CombatState;
 import dev.lovelace.lovecore.api.economy.LoveEconomy;
+import dev.lovelace.lovecore.api.economy.TaxOracle;
 import dev.lovelace.lovecore.api.notify.LoveNotify;
 import dev.lovelace.lovecore.api.social.ProfileOracle;
 import dev.lovelace.lovecore.api.social.ReputationOracle;
@@ -10,7 +11,9 @@ import dev.lovelace.lovecore.api.territory.TerritoryOracle;
 import dev.lovelace.lovecore.combat.CombatTracker;
 import dev.lovelace.lovecore.commands.LoveCoreAdminCommand;
 import dev.lovelace.lovecore.commands.NotifyCommand;
+import dev.lovelace.lovecore.commands.TaxCommand;
 import dev.lovelace.lovecore.economy.PhysicalEconomy;
+import dev.lovelace.lovecore.economy.TaxOracleImpl;
 import dev.lovelace.lovecore.notify.LoveNotifyImpl;
 import dev.lovelace.lovecore.notify.NotifySettingsStore;
 import dev.lovelace.lovecore.social.BehaviorReputationOracle;
@@ -46,6 +49,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private TerritoryOracle territoryOracle;
     private ReputationOracle reputationOracle;
     private NotifySettingsStore notifySettingsStore;
+    private TaxOracleImpl taxOracle;
     private final List<String> registered = new ArrayList<>();
 
     @Override
@@ -73,6 +77,15 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         if (notifyCmd != null) {
             notifyCmd.setExecutor(notifyCommand);
             notifyCmd.setTabCompleter(notifyCommand);
+        }
+
+        taxOracle = new TaxOracleImpl(this);
+        register(TaxOracle.class, taxOracle, "TaxOracle");
+        TaxCommand taxCommand = new TaxCommand(this, taxOracle);
+        var taxCmd = getCommand("tax");
+        if (taxCmd != null) {
+            taxCmd.setExecutor(taxCommand);
+            taxCmd.setTabCompleter(taxCommand);
         }
 
         if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
@@ -133,6 +146,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         economy.reload(this);
         combat.reload();
         statBus.reload();
+        taxOracle.reload();
         relinkOracles();
     }
 
