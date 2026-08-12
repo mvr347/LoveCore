@@ -5,8 +5,13 @@
 #
 # Без этого файла соседние плагины не смогут подключить lovecore-api: JitPack
 # промолчит, а зависимость просто не разрешится.
+#
+# jdk был openjdk21 — устарело после миграции на Paper 26.2/Java 25 (maven-compiler-plugin
+# теперь целится release 25, которого openjdk21's javac не умеет; сборка падала на
+# lovecore-api с "release version 25 not supported", хотя сам JitPack при этом молча
+# публиковал пустой/битый артефакт вместо явной ошибки резолву у потребителей).
 jdk:
-  - openjdk21
+  - openjdk25
 install:
   - curl -sSL https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz | tar xz -C /tmp
   - /tmp/apache-maven-3.9.9/bin/mvn clean install -DskipTests -B
