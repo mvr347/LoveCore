@@ -2,13 +2,17 @@ package dev.lovelace.lovecore;
 
 import dev.lovelace.lovecore.api.combat.CombatState;
 import dev.lovelace.lovecore.api.economy.LoveEconomy;
+import dev.lovelace.lovecore.api.notify.LoveNotify;
 import dev.lovelace.lovecore.api.social.ProfileOracle;
 import dev.lovelace.lovecore.api.social.ReputationOracle;
 import dev.lovelace.lovecore.api.stats.StatBus;
 import dev.lovelace.lovecore.api.territory.TerritoryOracle;
 import dev.lovelace.lovecore.combat.CombatTracker;
 import dev.lovelace.lovecore.commands.LoveCoreAdminCommand;
+import dev.lovelace.lovecore.commands.NotifyCommand;
 import dev.lovelace.lovecore.economy.PhysicalEconomy;
+import dev.lovelace.lovecore.notify.LoveNotifyImpl;
+import dev.lovelace.lovecore.notify.NotifySettingsStore;
 import dev.lovelace.lovecore.social.BehaviorReputationOracle;
 import dev.lovelace.lovecore.social.ClansProfileOracle;
 import dev.lovelace.lovecore.stats.BufferedStatBus;
@@ -41,6 +45,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private ProfileOracle profileOracle;
     private TerritoryOracle territoryOracle;
     private ReputationOracle reputationOracle;
+    private NotifySettingsStore notifySettingsStore;
     private final List<String> registered = new ArrayList<>();
 
     @Override
@@ -57,6 +62,18 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         combat = new CombatTracker(this);
         combat.start();
         register(CombatState.class, combat, "CombatState");
+
+        notifySettingsStore = new NotifySettingsStore(this);
+        notifySettingsStore.load();
+        LoveNotifyImpl loveNotify = new LoveNotifyImpl(this, notifySettingsStore);
+        register(LoveNotify.class, loveNotify, "LoveNotify");
+
+        NotifyCommand notifyCommand = new NotifyCommand(loveNotify);
+        var notifyCmd = getCommand("lovenotify");
+        if (notifyCmd != null) {
+            notifyCmd.setExecutor(notifyCommand);
+            notifyCmd.setTabCompleter(notifyCommand);
+        }
 
         // Единая admin-команда ядра: /lovecoreadmin [reload], со старым /lovecore
         // алиасом в plugin.yml — как у остальных плагинов экосистемы.

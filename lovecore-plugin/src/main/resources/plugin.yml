@@ -31,8 +31,16 @@ commands:
     usage: /lovecoreadmin [reload]
     aliases: [lovecore]
     permission: lovecore.admin
+  lovenotify:
+    description: Переключить показ уведомлений в title/actionbar/chat.
+    usage: /lovenotify [toggle <chat|actionbar|title>]
+    aliases: [notify, уведомления]
+    permission: lovecore.notify
 
 permissions:
   lovecore.admin:
     description: Доступ к служебной информации ядра.
     default: op
+  lovecore.notify:
+    description: Право настраивать свои каналы уведомлений LoveNotify.
+    default: true
