@@ -90,7 +90,8 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
         if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
             new dev.lovelace.lovecore.placeholders.NotifyPlaceholders(this, loveNotify).register();
-            getLogger().info("✓ PlaceholderAPI интеграция (LoveNotify) активирована.");
+            new dev.lovelace.lovecore.placeholders.TaxPlaceholders(this, taxOracle).register();
+            getLogger().info("✓ PlaceholderAPI интеграция (LoveNotify, налог) активирована.");
         }
 
         // Единая admin-команда ядра: /lovecoreadmin [reload], со старым /lovecore
