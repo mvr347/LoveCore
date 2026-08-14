@@ -49,6 +49,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private TerritoryOracle territoryOracle;
     private ReputationOracle reputationOracle;
     private NotifySettingsStore notifySettingsStore;
+    private LoveNotifyImpl loveNotify;
     private TaxOracleImpl taxOracle;
     private final List<String> registered = new ArrayList<>();
 
@@ -69,7 +70,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
         notifySettingsStore = new NotifySettingsStore(this);
         notifySettingsStore.load();
-        LoveNotifyImpl loveNotify = new LoveNotifyImpl(this, notifySettingsStore);
+        loveNotify = new LoveNotifyImpl(this, notifySettingsStore);
         register(LoveNotify.class, loveNotify, "LoveNotify");
 
         NotifyCommand notifyCommand = new NotifyCommand(loveNotify);
@@ -128,6 +129,12 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         if (statBus != null) {
             statBus.shutdown();
         }
+        if (notifySettingsStore != null) {
+            // Тумблер /lovenotify toggle пишется асинхронно (см. NotifySettingsStore#saveAsync);
+            // на остановке сервера этой задаче могло не хватить времени добежать до диска, а
+            // ждать её здесь уже негде — досылаем синхронно, как statBus досылает буфер выше.
+            notifySettingsStore.flush();
+        }
         Bukkit.getServicesManager().unregisterAll(this);
     }
 
@@ -147,6 +154,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         combat.reload();
         statBus.reload();
         taxOracle.reload();
+        loveNotify.reload();
         relinkOracles();
     }
 

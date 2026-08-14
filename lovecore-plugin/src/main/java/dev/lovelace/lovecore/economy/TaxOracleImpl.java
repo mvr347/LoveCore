@@ -6,9 +6,9 @@ import dev.lovelace.lovecore.api.social.BehaviorLevels;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.Plugin;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Считает единую ставку налога по ступеням LoveBehavior.
@@ -27,14 +27,19 @@ import java.util.UUID;
 public final class TaxOracleImpl implements TaxOracle {
 
     private final Plugin plugin;
-    private boolean enabled;
-    private final Map<Integer, Double> basePercentByPoliteness = new HashMap<>();
-    private double terribleForcedPercent;
-    private double minPercent;
-    private double maxPercent;
-    private double aggressiveBonusPercent;
-    private double tradeSofteningPercent;
-    private int clanCreationBlockedBelowPoliteness;
+    // rate()/tradeRate()/isGatedAction() carry no thread-confinement contract (unlike
+    // PhysicalEconomy, which needs a live Player) — other plugins may legitimately call them
+    // from an async task, while load() rewrites these fields on the main thread during
+    // /lovecoreadmin reload or /tax reload. volatile (and a concurrent map, so a reader never
+    // observes an in-progress clear()+refill()) keeps that safe without changing behavior.
+    private volatile boolean enabled;
+    private final Map<Integer, Double> basePercentByPoliteness = new ConcurrentHashMap<>();
+    private volatile double terribleForcedPercent;
+    private volatile double minPercent;
+    private volatile double maxPercent;
+    private volatile double aggressiveBonusPercent;
+    private volatile double tradeSofteningPercent;
+    private volatile int clanCreationBlockedBelowPoliteness;
 
     public TaxOracleImpl(Plugin plugin) {
         this.plugin = plugin;

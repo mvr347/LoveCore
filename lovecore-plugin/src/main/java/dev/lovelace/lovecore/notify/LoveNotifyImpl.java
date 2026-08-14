@@ -18,11 +18,21 @@ public final class LoveNotifyImpl implements LoveNotify {
 
     private final JavaPlugin plugin;
     private final NotifySettingsStore store;
-    private final int overflowLength;
+    private volatile int overflowLength;
 
     public LoveNotifyImpl(JavaPlugin plugin, NotifySettingsStore store) {
         this.plugin = plugin;
         this.store = store;
+        this.overflowLength = plugin.getConfig().getInt("notify.overflow-length", 60);
+    }
+
+    /**
+     * Re-reads {@code notify.overflow-length}. Without this, {@code /lovecoreadmin reload}
+     * silently kept using the value from server start for the lifetime of the plugin even
+     * though every other setting in {@link dev.lovelace.lovecore.LoveCorePlugin#reload()} is
+     * re-applied live.
+     */
+    public void reload() {
         this.overflowLength = plugin.getConfig().getInt("notify.overflow-length", 60);
     }
 
