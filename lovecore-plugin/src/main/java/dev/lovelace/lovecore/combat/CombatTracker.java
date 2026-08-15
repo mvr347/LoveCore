@@ -39,8 +39,11 @@ public final class CombatTracker implements CombatState, Listener {
     }
 
     private final Plugin plugin;
-    private Duration pvpDuration;
-    private List<String> externalKeys;
+    // mark()/inCombat()/combatEndsAt()/combatSource() take no Player, so unlike PhysicalEconomy
+    // they carry no main-thread requirement — war/siege plugins may call them from an async
+    // task, while reload() rewrites these fields on the main thread. volatile keeps that safe.
+    private volatile Duration pvpDuration;
+    private volatile List<String> externalKeys;
     private final Map<UUID, Combat> combats = new ConcurrentHashMap<>();
     private BukkitTask purgeTask;
     private boolean listenerRegistered;

@@ -61,7 +61,15 @@ public final class NotifySettingsStore {
 
     public Set<Channel> getEnabledChannels(UUID uuid) {
         EnumSet<Channel> stored = settings.get(uuid);
-        return stored != null ? EnumSet.copyOf(stored) : EnumSet.copyOf(DEFAULT_CHANNELS);
+        if (stored == null) {
+            return EnumSet.copyOf(DEFAULT_CHANNELS);
+        }
+        // Same lock object setChannelEnabled mutates under: EnumSet isn't thread-safe, and
+        // without this a reader on another thread (e.g. a PlaceholderAPI request, which can be
+        // evaluated off the main thread) could race a toggle and see a torn/stale set.
+        synchronized (stored) {
+            return EnumSet.copyOf(stored);
+        }
     }
 
     /**
@@ -86,22 +94,39 @@ public final class NotifySettingsStore {
     }
 
     private void saveAsync() {
-        Bukkit.getAsyncScheduler().runNow(plugin, task -> {
-            YamlConfiguration yaml = new YamlConfiguration();
-            for (var entry : settings.entrySet()) {
-                String base = entry.getKey().toString();
+        Bukkit.getAsyncScheduler().runNow(plugin, task -> writeToDisk());
+    }
+
+    /**
+     * Синхронный вариант {@link #saveAsync()} для {@code onDisable}: на выключении сервера
+     * ждать асинхронную задачу уже негде, а последний тумблер игрока перед остановкой не
+     * должен потеряться так же, как {@link dev.lovelace.lovecore.stats.BufferedStatBus}
+     * досылает накопленную статистику синхронно перед выходом.
+     */
+    public void flush() {
+        writeToDisk();
+    }
+
+    private void writeToDisk() {
+        YamlConfiguration yaml = new YamlConfiguration();
+        for (var entry : settings.entrySet()) {
+            String base = entry.getKey().toString();
+            EnumSet<Channel> value = entry.getValue();
+            // Тот же замок, что и на записи в setChannelEnabled/getEnabledChannels: EnumSet не
+            // потокобезопасен, а сериализация читает его поэлементно.
+            synchronized (value) {
                 for (Channel channel : Channel.values()) {
-                    yaml.set(base + "." + channel.name(), entry.getValue().contains(channel));
+                    yaml.set(base + "." + channel.name(), value.contains(channel));
                 }
             }
-            try {
-                if (!plugin.getDataFolder().exists()) {
-                    plugin.getDataFolder().mkdirs();
-                }
-                yaml.save(file);
-            } catch (IOException e) {
-                plugin.getLogger().warning("Не удалось сохранить notify-settings.yml: " + e.getMessage());
+        }
+        try {
+            if (!plugin.getDataFolder().exists()) {
+                plugin.getDataFolder().mkdirs();
             }
-        });
+            yaml.save(file);
+        } catch (IOException e) {
+            plugin.getLogger().warning("Не удалось сохранить notify-settings.yml: " + e.getMessage());
+        }
     }
 }

@@ -52,7 +52,10 @@ public final class BufferedStatBus implements StatBus {
     }
 
     private final Plugin plugin;
-    private long flushIntervalTicks;
+    // record()/set() are documented as callable from any thread (see class javadoc), while
+    // reload() rewrites this field on the main thread — volatile keeps submit() from reading a
+    // stale value on another thread.
+    private volatile long flushIntervalTicks;
     private final Map<Key, Pending> pending = new LinkedHashMap<>();
     private BukkitTask flushTask;
 
