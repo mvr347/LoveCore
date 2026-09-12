@@ -95,3 +95,13 @@ tax:
   # Ступени вежливости (0..6), при которых игроку целиком запрещено создание клана —
   # не налог, а полный запрет действия.
   clan-creation-blocked-below-politeness: 2
+
+# Интеграция с Discord: единый бот для тикетов, апелляций, жалоб и привязки аккаунтов.
+discord:
+  enabled: false # Включите (true) после ввода токена и ID гильдии
+  bot-token: ""
+  guild-id: ""
+  appeals-category-id: ""
+  support-category-id: ""
+  reports-channel-id: ""
+  appeals-log-channel-id: ""

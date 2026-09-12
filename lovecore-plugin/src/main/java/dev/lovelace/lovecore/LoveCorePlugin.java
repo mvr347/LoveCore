@@ -51,6 +51,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private NotifySettingsStore notifySettingsStore;
     private LoveNotifyImpl loveNotify;
     private TaxOracleImpl taxOracle;
+    private dev.lovelace.lovecore.discord.DiscordServiceImpl discordService;
     private final List<String> registered = new ArrayList<>();
 
     @Override
@@ -88,6 +89,10 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
             taxCmd.setExecutor(taxCommand);
             taxCmd.setTabCompleter(taxCommand);
         }
+
+        discordService = new dev.lovelace.lovecore.discord.DiscordServiceImpl(this);
+        discordService.load();
+        register(dev.lovelace.lovecore.api.discord.DiscordService.class, discordService, "DiscordService");
 
         if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
             new dev.lovelace.lovecore.placeholders.LoveCorePlaceholders(this, loveNotify, taxOracle).register();
