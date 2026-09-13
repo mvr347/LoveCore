@@ -11,6 +11,7 @@ import dev.lovelace.lovecore.api.discord.TicketType;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
@@ -55,6 +56,7 @@ public final class DiscordServiceImpl implements DiscordService {
     private final Map<String, String> activeTickets = new ConcurrentHashMap<>(); // ticketId -> channelId
     private final Map<String, String> channelLastMessageId = new ConcurrentHashMap<>();
     private final List<TicketMessageListener> messageListeners = new CopyOnWriteArrayList<>();
+    private BukkitTask pollingTask;
 
     private record LinkCode(UUID playerUuid, long expiresAt) {}
 
@@ -333,7 +335,13 @@ public final class DiscordServiceImpl implements DiscordService {
     }
 
     private void startMessagePolling() {
-        plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> {
+        // load() переисполняется на /lovecoreadmin reload — без отмены здесь каждый reload
+        // навешивал бы ещё один параллельный таймер, и каждое сообщение тикета долетало бы
+        // до слушателей столько раз, сколько было reload'ов.
+        if (pollingTask != null) {
+            pollingTask.cancel();
+        }
+        pollingTask = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> {
             if (!isEnabled() || activeTickets.isEmpty()) return;
 
             for (Map.Entry<String, String> entry : activeTickets.entrySet()) {

@@ -160,6 +160,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         statBus.reload();
         taxOracle.reload();
         loveNotify.reload();
+        discordService.load();
         relinkOracles();
     }
 
