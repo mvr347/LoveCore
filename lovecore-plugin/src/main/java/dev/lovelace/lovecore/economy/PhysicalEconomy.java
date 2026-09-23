@@ -218,8 +218,16 @@ public final class PhysicalEconomy implements LoveEconomy {
             if (count <= 0) {
                 continue;
             }
-            remaining %= denomination.value();
-            result.addAll(stacksOf(denomination.itemId(), count));
+            List<ItemStack> stacks = stacksOf(denomination.itemId(), count);
+            if (stacks.isEmpty()) {
+                // This denomination's ItemsAdder item didn't resolve (missing/renamed in the
+                // item pack, bad config id, ...) — leave `remaining` untouched so the value
+                // it represented falls through to smaller denominations instead of vanishing
+                // silently. Only value actually turned into real items is subtracted below.
+                continue;
+            }
+            remaining -= count * denomination.value();
+            result.addAll(stacks);
         }
         return result;
     }
