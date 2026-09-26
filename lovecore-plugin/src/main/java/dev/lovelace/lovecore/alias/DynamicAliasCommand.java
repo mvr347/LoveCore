@@ -17,6 +17,14 @@ import java.util.regex.Matcher;
  * плагин-владелец целевой команды и не кэширует саму целевую {@link Command} — на каждом
  * вызове резолвит её заново через {@code Bukkit.getCommandMap()}/{@code Bukkit.dispatchCommand},
  * поэтому переживает /reload или переустановку целевого плагина без переигрывания алиасов.
+ * Работает одинаково для команды любого плагина ЛЮБОГО плагина экосистемы, стороннего плагина
+ * или ванильной команды сервера — CommandMap и dispatchCommand не различают их источник, так
+ * что никакого спецкейса под "ванильное" здесь нет и не нужно.
+ *
+ * <p>После подстановки %1%/%player% результат ещё раз прогоняется через PlaceholderAPI
+ * (%любой_плейсхолдер%), если он установлен — так target может содержать не только
+ * собственные переменные этого алиаса, но и вообще любой плейсхолдер, зарегистрированный
+ * любым плагином через PAPI.</p>
  */
 public class DynamicAliasCommand extends Command {
 
@@ -49,6 +57,14 @@ public class DynamicAliasCommand extends Command {
         if (dispatch == null) {
             // resolve() уже отправило игроку сообщение об ошибке (нехватка аргументов / не-игрок).
             return true;
+        }
+        // 2026-09-26: помимо собственных %1%/%player% target может нести любой плейсхолдер
+        // PlaceholderAPI - резолвим их тут же, после подстановки своих переменных, чтобы
+        // %1% и %player% тоже успели встать на место до того, как PAPI увидит строку (иначе
+        // "%1%" мог бы случайно совпасть с чужим форматом плейсхолдера).
+        if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            dispatch = me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(
+                    sender instanceof Player player ? player : null, dispatch);
         }
         if (dispatch.isBlank()) {
             sender.sendMessage(MM.deserialize("<red>Алиас '" + definition.name() + "' ссылается в никуда (пустой target).</red>"));
