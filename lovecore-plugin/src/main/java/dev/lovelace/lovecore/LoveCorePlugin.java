@@ -8,7 +8,10 @@ import dev.lovelace.lovecore.api.social.ProfileOracle;
 import dev.lovelace.lovecore.api.social.ReputationOracle;
 import dev.lovelace.lovecore.api.stats.StatBus;
 import dev.lovelace.lovecore.api.territory.TerritoryOracle;
+import dev.lovelace.lovecore.alias.AliasManager;
+import dev.lovelace.lovecore.alias.AliasRegistry;
 import dev.lovelace.lovecore.combat.CombatTracker;
+import dev.lovelace.lovecore.commands.AliasAdminCommand;
 import dev.lovelace.lovecore.commands.LoveCoreAdminCommand;
 import dev.lovelace.lovecore.commands.NotifyCommand;
 import dev.lovelace.lovecore.commands.TaxCommand;
@@ -52,6 +55,8 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private LoveNotifyImpl loveNotify;
     private TaxOracleImpl taxOracle;
     private dev.lovelace.lovecore.discord.DiscordServiceImpl discordService;
+    private AliasRegistry aliasRegistry;
+    private AliasManager aliasManager;
     private final List<String> registered = new ArrayList<>();
 
     @Override
@@ -108,6 +113,21 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
             command.setTabCompleter(adminCommand);
         }
 
+        // Алиасы команд ЛЮБОГО плагина экосистемы (не только LoveCore) - см. пакет alias.
+        // aliasManager регистрирует их прямо в Bukkit.getCommandMap(), в обход plugin.yml,
+        // поэтому появляются и исчезают вживую по /lovealias без рестарта сервера.
+        aliasRegistry = new AliasRegistry(this);
+        aliasRegistry.load();
+        aliasManager = new AliasManager(this, aliasRegistry);
+        aliasManager.applyAll();
+        AliasAdminCommand aliasCommand = new AliasAdminCommand(this, aliasRegistry, aliasManager);
+        var loveAliasCmd = getCommand("lovealias");
+        if (loveAliasCmd != null) {
+            loveAliasCmd.setExecutor(aliasCommand);
+            loveAliasCmd.setTabCompleter(aliasCommand);
+        }
+        getLogger().info("Алиасов команд применено: " + aliasManager.count() + ".");
+
         // Оракулы собираются из соседей, а соседи включаются после ядра — оно объявлено
         // в loadbefore. Поэтому связки поднимаются на ServerLoadEvent, когда включились все.
         Bukkit.getPluginManager().registerEvents(this, this);
@@ -161,6 +181,8 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         taxOracle.reload();
         loveNotify.reload();
         discordService.load();
+        aliasRegistry.load();
+        aliasManager.applyAll();
         relinkOracles();
     }
 
