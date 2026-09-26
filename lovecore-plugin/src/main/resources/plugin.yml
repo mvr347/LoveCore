@@ -44,6 +44,11 @@ commands:
     usage: /tax [info|set <politeness|terrible|min|max|aggressive-bonus|trade-softening> <значение>|reload]
     aliases: [налог]
     permission: lovecore.tax
+  lovealias:
+    description: Управление алиасами команд (любого плагина экосистемы, не только LoveCore).
+    usage: /lovealias <add|remove|list|info|permission|tab|reload>
+    aliases: [алиас, алиасы]
+    permission: lovecore.alias.admin
 
 permissions:
   lovecore.admin:
@@ -57,4 +62,7 @@ permissions:
     default: true
   lovecore.tax.admin:
     description: Право менять параметры налога.
+    default: op
+  lovecore.alias.admin:
+    description: Право создавать/удалять/настраивать алиасы команд через /lovealias.
     default: op
