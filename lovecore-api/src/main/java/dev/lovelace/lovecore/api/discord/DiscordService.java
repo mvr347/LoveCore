@@ -44,4 +44,13 @@ public interface DiscordService {
 
     /** Регистрирует слушатель сообщений из тикетов. */
     void registerTicketMessageListener(TicketMessageListener listener);
+
+    /**
+     * Снимает слушатель, зарегистрированный через {@link #registerTicketMessageListener}. Плагин-потребитель
+     * должен вызывать это в своём {@code onDisable()}, иначе после каждого {@code /reload} прежний слушатель
+     * продолжает срабатывать вместе с новым. По умолчанию ничего не делает, чтобы не ломать сторонние
+     * реализации интерфейса.
+     */
+    default void unregisterTicketMessageListener(TicketMessageListener listener) {
+    }
 }
