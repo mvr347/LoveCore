@@ -58,6 +58,11 @@ public final class DiscordServiceImpl implements DiscordService {
     private final List<TicketMessageListener> messageListeners = new CopyOnWriteArrayList<>();
     private BukkitTask pollingTask;
 
+    // Blocking HTTP calls (including the 3 s sleep in closeTicketChannel) run on virtual threads instead of
+    // ForkJoinPool.commonPool(), which is shared by every plugin on the JVM and would be starved by them.
+    private final java.util.concurrent.ExecutorService httpExecutor =
+            java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+
     private record LinkCode(UUID playerUuid, long expiresAt) {}
 
     public DiscordServiceImpl(JavaPlugin plugin) {
@@ -260,18 +265,30 @@ public final class DiscordServiceImpl implements DiscordService {
                         .DELETE()
                         .build();
                 HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-                activeTickets.values().remove(channelId);
                 return resp.statusCode() >= 200 && resp.statusCode() < 300;
             } catch (Exception e) {
                 return false;
+            } finally {
+                // The ticket is closed as far as the plugin is concerned whether or not Discord answered the
+                // DELETE (timeout, 5xx, rate limit). Removing it only on success left a closed ticket in
+                // activeTickets that was polled every 4 s for the rest of the uptime.
+                activeTickets.values().remove(channelId);
+                channelLastMessageId.remove(channelId);
             }
-        });
+        }, httpExecutor);
     }
 
     @Override
     public void registerTicketMessageListener(TicketMessageListener listener) {
         if (listener != null) {
             messageListeners.add(listener);
+        }
+    }
+
+    @Override
+    public void unregisterTicketMessageListener(TicketMessageListener listener) {
+        if (listener != null) {
+            messageListeners.remove(listener);
         }
     }
 
@@ -306,7 +323,7 @@ public final class DiscordServiceImpl implements DiscordService {
                 plugin.getLogger().warning("Ошибка запроса к Discord API (" + endpoint + "): " + e.getMessage());
                 return null;
             }
-        });
+        }, httpExecutor);
     }
 
     private JsonObject serializeEmbed(DiscordEmbed embed) {
