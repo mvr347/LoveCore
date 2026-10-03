@@ -31,7 +31,7 @@ softdepend:
 commands:
   lovecoreadmin:
     description: Показать, какие службы ядра поднялись, или /lovecoreadmin reload.
-    usage: /lovecoreadmin [reload]
+    usage: /lovecoreadmin [reload|economy|cleardata]
     aliases: [lovecore]
     permission: lovecore.admin
   lovenotify:

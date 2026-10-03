@@ -32,7 +32,7 @@ import java.util.UUID;
  */
 public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
 
-    private static final List<String> SUBCOMMANDS = List.of("reload", "help", "cleardata");
+    private static final List<String> SUBCOMMANDS = List.of("reload", "help", "cleardata", "economy");
 
     private final LoveCorePlugin plugin;
     private final MiniMessage mm = MiniMessage.miniMessage();
@@ -56,6 +56,10 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("cleardata")) {
             handleClearData(sender, args);
+            return true;
+        }
+        if (args.length > 0 && (args[0].equalsIgnoreCase("economy") || args[0].equalsIgnoreCase("экономика"))) {
+            handleEconomy(sender, args);
             return true;
         }
         sendStatus(sender);
@@ -123,6 +127,69 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         });
     }
 
+    /** {@code /lovecoreadmin economy <index|price|dump-prices|status>}: ручки общей экономики. */
+    private void handleEconomy(@NotNull CommandSender sender, @NotNull String[] args) {
+        String sub = args.length > 1 ? args[1].toLowerCase(java.util.Locale.ROOT) : "status";
+        var eco = plugin.getEconomy();
+        switch (sub) {
+            case "index" -> {
+                if (args.length < 3 || args[2].equalsIgnoreCase("show")) {
+                    sender.sendMessage(mm.deserialize("<gray>Индекс цен: <white>" + eco.priceIndex() + "</white></gray>"));
+                    return;
+                }
+                double value;
+                if (args[2].equalsIgnoreCase("reset") || args[2].equalsIgnoreCase("сброс")) {
+                    value = 1.0;
+                } else {
+                    try {
+                        value = Double.parseDouble(args[2].replace(',', '.'));
+                    } catch (NumberFormatException e) {
+                        sender.sendMessage(mm.deserialize("<red>Использование: /lovecoreadmin economy index <число|reset|show></red>"));
+                        return;
+                    }
+                }
+                if (!(value >= 0.1 && value <= 100.0)) {
+                    sender.sendMessage(mm.deserialize("<red>Индекс цен должен быть от 0.1 до 100.</red>"));
+                    return;
+                }
+                double old = eco.priceIndex();
+                eco.setPriceIndex(plugin, value);
+                sender.sendMessage(mm.deserialize("<green>Индекс цен: <white>" + old + " → " + value
+                        + "</white>. Плагины применяют его к конфигурационным ценам и наградам; суммы в их базах не меняются.</green>"));
+            }
+            case "price" -> {
+                if (args.length < 3) {
+                    sender.sendMessage(mm.deserialize("<red>Использование: /lovecoreadmin economy price <предмет></red>"));
+                    return;
+                }
+                org.bukkit.Material material = org.bukkit.Material.matchMaterial(args[2]);
+                if (material == null) {
+                    sender.sendMessage(mm.deserialize("<red>Неизвестный предмет: " + args[2] + "</red>"));
+                    return;
+                }
+                for (String line : plugin.getPriceModel().explain(material)) {
+                    sender.sendMessage(net.kyori.adventure.text.Component.text(line));
+                }
+                plugin.getPriceModel().value(material).ifPresent(v -> sender.sendMessage(mm.deserialize(
+                        "<gray>С индексом цен: <white>" + eco.scaled(v) + "</white> (индекс " + eco.priceIndex() + ")</gray>")));
+            }
+            case "dump-prices", "dump" -> {
+                try {
+                    java.io.File file = plugin.getPriceModel().dump();
+                    sender.sendMessage(mm.deserialize("<green>Цены выгружены: <white>" + file.getName() + "</white></green>"));
+                } catch (java.io.IOException e) {
+                    sender.sendMessage(mm.deserialize("<red>Не удалось записать файл: " + e.getMessage() + "</red>"));
+                }
+            }
+            default -> {
+                sender.sendMessage(mm.deserialize("<gray>Индекс цен: <white>" + eco.priceIndex() + "</white>, версия масштаба: <white>"
+                        + eco.economyScaleVersion() + "</white>, модель цен: <white>"
+                        + (plugin.getPriceModel().ready() ? "построена" : "не построена") + "</white></gray>"));
+                sender.sendMessage(mm.deserialize("<gray>/lovecoreadmin economy <index|price|dump-prices></gray>"));
+            }
+        }
+    }
+
     private void handleReload(@NotNull CommandSender sender) {
         plugin.reload();
         int count = plugin.getRegisteredServices().size();
@@ -155,6 +222,9 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(mm.deserialize(
                 "<gold>/lovecoreadmin reload</gold> <gray>- Перезагрузить конфигурацию ядра</gray>"));
         sender.sendMessage(mm.deserialize(
+                "<gold>/lovecoreadmin economy <index|price|dump-prices></gold> <gray>- Индекс цен, разбор цены предмета, "
+                        + "выгрузка модели цен</gray>"));
+        sender.sendMessage(mm.deserialize(
                 "<gold>/lovecoreadmin cleardata <игрок> confirm</gold> <gray>- Стереть данные игрока во всех "
                         + "плагинах, кроме LoveAuth (необратимо)</gray>"));
         sendFooter(sender);
@@ -180,6 +250,16 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2 && args[0].equalsIgnoreCase("cleardata")) {
             List<String> names = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
             return StringUtil.copyPartialMatches(args[1], names, new ArrayList<>());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("economy")) {
+            return StringUtil.copyPartialMatches(args[1], List.of("status", "index", "price", "dump-prices"), new ArrayList<>());
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("economy") && args[1].equalsIgnoreCase("index")) {
+            return StringUtil.copyPartialMatches(args[2], List.of("show", "reset", "0.8", "1.0", "1.2"), new ArrayList<>());
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("economy") && args[1].equalsIgnoreCase("price")) {
+            return StringUtil.copyPartialMatches(args[2], java.util.Arrays.stream(org.bukkit.Material.values())
+                    .map(m -> m.name().toLowerCase(java.util.Locale.ROOT)).toList(), new ArrayList<>());
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("cleardata")) {
             return StringUtil.copyPartialMatches(args[2], List.of("confirm"), new ArrayList<>());

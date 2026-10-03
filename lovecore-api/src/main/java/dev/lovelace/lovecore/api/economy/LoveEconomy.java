@@ -58,6 +58,40 @@ public interface LoveEconomy {
      */
     long valueOf(ItemStack stack);
 
+    /**
+     * Все номиналы, включая скрытые: скрытая монета (например, незеритовая) по-прежнему считается деньгами,
+     * если лежит у игрока, но не участвует в разбиении сумм, сдаче, показе глифами и обмене.
+     */
+    default List<Denomination> allDenominations() {
+        return denominations();
+    }
+
+    /** Общий индекс цен ({@code economy.price-index}): множитель всех цен и наград из конфигов; по умолчанию 1. */
+    default double priceIndex() {
+        return 1.0;
+    }
+
+    /**
+     * Конфигурационная сумма с учётом индекса цен. Положительные суммы не опускаются ниже 1.
+     * Выплаты и стоимости, хранящиеся у плагинов в БД, индексом не пересчитываются.
+     */
+    default long scaled(long base) {
+        if (base <= 0) {
+            return base;
+        }
+        return Math.max(1L, Math.round(base * priceIndex()));
+    }
+
+    /** Версия масштаба экономики ({@code economy.scale-version}): по ней плагины мигрируют суммы в своих БД. */
+    default int economyScaleVersion() {
+        return 1;
+    }
+
+    /** Сумма из строки конфига: {@code "3i 50c"}, {@code "1.5g"}, {@code "250"} (см. {@link MoneyParser}). */
+    default long parse(String text) {
+        return MoneyParser.parse(text, allDenominations());
+    }
+
     /** Монета ли предмет — {@code valueOf(stack) > 0}. */
     default boolean isCoin(ItemStack stack) {
         return valueOf(stack) > 0;

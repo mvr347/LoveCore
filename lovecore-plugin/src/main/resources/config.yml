@@ -8,15 +8,233 @@ economy:
   # Название валюты для показа игроку.
   currency-name: "монет"
 
-  # Номиналы монет ItemsAdder и сколько единиц валюты стоит один такой предмет.
+  # Номиналы монет ItemsAdder и сколько единиц валюты (медных) стоит один такой предмет.
   # ID — без namespace или с ним, сравнивается одинаково (например, и "gold_coin", и
   # "currency:gold_coin" совпадут с ItemsAdder-предметом currency:gold_coin).
+  # 2026-10-03: пересмотрено под лестницу ценности. Медная — мусор и мелочь, железная — повседневное
+  # («из чего строят»), золотая — редкое, алмазная — «очень богат», незеритовая — скрыта (ниже).
+  # Живые монеты на руках переоцениваются сразу: значение берётся отсюда, в предметах оно не хранится.
   denominations:
     copper_coin: 1
-    iron_coin: 10
-    gold_coin: 50
-    diamond_coin: 100
-    netherite_coin: 1000
+    iron_coin: 100
+    gold_coin: 2000
+    diamond_coin: 20000
+    netherite_coin: 100000
+
+  # Скрытые номиналы: по-прежнему считаются деньгами, если лежат в инвентаре, но не участвуют в разбиении
+  # сумм, сдаче, обмене и показе глифами — то есть нигде не выдаются и не используются в ценах.
+  # 2026-10-03: незеритовая монета (абсолютная дороговизна) пока скрыта, потолок цен — алмазные монеты.
+  hidden-denominations:
+    - netherite_coin
+
+  # Общий индекс цен: множитель всех сумм, которые плагины читают из своих конфигов (цены, награды, стоимость
+  # услуг), одной командой /lovecoreadmin economy index <число>. 1.0 — как в конфигах; 1.2 — всё дороже на 20 %
+  # (и награды тоже: так меняется «цена валюты», а не соотношение источников и стоков). Суммы, уже лежащие в
+  # базах плагинов (лоты, кассы, казна), индексом не пересчитываются.
+  price-index: 1.0
+
+  # Версия масштаба экономики. Плагины со своими базами сравнивают её с записанной у себя и один раз
+  # пересчитывают хранимые суммы (с копией базы). Менять вручную не нужно.
+  scale-version: 2
+
+  # ============================================================================================
+  # Единая модель цен (2026-10-03). Цена предмета = стоимость сырья по рецепту × (1 + наценка за крафт),
+  # а не вручную в каждом плагине. Поэтому «алмаз = 100» сам даёт алмазный нагрудник ≈ 8 алмазов + наценка,
+  # а не «алмаз 100, броня 20 000». Магазины берут цену отсюда и применяют свои коэффициенты.
+  # Разбор любой цены: /lovecoreadmin economy price <предмет>, выгрузка: /lovecoreadmin economy dump-prices.
+  # ============================================================================================
+  price-model:
+    enabled: true
+    # Общий множитель модели (после расчёта, до округления). Для всех цен сразу лучше price-index выше.
+    global-scale: 1.0
+    # Границы итоговой цены одного предмета (медные единицы).
+    min-price: 1
+    max-price: 500000
+    # Топливо при плавке: уголь 4 меди горит на 8 предметов, значит ~0,5; округляем до 1.
+    smelt-fuel-cost: 1
+    # Наценка за крафт, %. Считается от стоимости сырья. Сжатие/распаковка запасов (9 слитков = блок)
+    # и камнерез идут без наценки: блок всегда стоит ровно девять слитков.
+    craft-markup:
+      default: 15
+      tools: 15
+      armor: 15
+      blocks: 5
+      food: 10
+      redstone: 25
+      decor: 20
+    # Наценка по конкретным материалам (перекрывает категорию): ТОТЕМ: 30
+    item-markup: {}
+    # «Красивое» округление итоговой цены: до up-to включительно цена кратна step.
+    rounding:
+      - { up-to: 20, step: 1 }
+      - { up-to: 200, step: 5 }
+      - { up-to: 2000, step: 10 }
+      - { up-to: 20000, step: 50 }
+      - { up-to: 100000000, step: 100 }
+    # Ручные цены: перекрывают и якорь, и расчёт. Пример: DIAMOND: 120
+    overrides: {}
+    # Якоря сырья: цена того, что не крафтится, а добывается/падает. Остальное выводится из них.
+    # Лестница: мусор 1–20 медных, «из чего строить» — медные/железные, ценное — железные,
+    # редкий лут — золотые, алмазная монета (20 000) = ~200 алмазов, незеритовая скрыта.
+    raw-values:
+      # Земля, камень, мусор (1–20 медных: то, что копают без усилий)
+      DIRT: 1
+      COARSE_DIRT: 1
+      ROOTED_DIRT: 2
+      GRASS_BLOCK: 2
+      PODZOL: 2
+      MYCELIUM: 3
+      SAND: 2
+      RED_SAND: 3
+      GRAVEL: 2
+      COBBLESTONE: 2
+      COBBLED_DEEPSLATE: 3
+      TUFF: 3
+      CALCITE: 6
+      DRIPSTONE_BLOCK: 5
+      NETHERRACK: 1
+      SOUL_SAND: 4
+      SOUL_SOIL: 4
+      BASALT: 3
+      BLACKSTONE: 3
+      END_STONE: 4
+      CLAY_BALL: 4
+      SNOWBALL: 1
+      ICE: 3
+      PACKED_ICE: 6
+      MOSS_BLOCK: 8
+      OBSIDIAN: 40
+      CRYING_OBSIDIAN: 90
+      MAGMA_BLOCK: 12
+      GLOWSTONE_DUST: 8
+      AMETHYST_SHARD: 25
+      # Растения и цветы (1–6 медных: мусор)
+      SHORT_GRASS: 1
+      TALL_GRASS: 2
+      FERN: 1
+      LARGE_FERN: 2
+      DEAD_BUSH: 1
+      VINE: 2
+      LILY_PAD: 3
+      SEAGRASS: 1
+      KELP: 2
+      SUGAR_CANE: 3
+      BAMBOO: 2
+      CACTUS: 3
+      DANDELION: 2
+      POPPY: 2
+      BLUE_ORCHID: 4
+      ALLIUM: 4
+      AZURE_BLUET: 3
+      RED_TULIP: 3
+      ORANGE_TULIP: 3
+      WHITE_TULIP: 3
+      PINK_TULIP: 3
+      OXEYE_DAISY: 3
+      CORNFLOWER: 4
+      LILY_OF_THE_VALLEY: 6
+      SUNFLOWER: 5
+      LILAC: 5
+      ROSE_BUSH: 5
+      PEONY: 5
+      TORCHFLOWER: 40
+      PITCHER_PLANT: 40
+      SPORE_BLOSSOM: 30
+      BROWN_MUSHROOM: 4
+      RED_MUSHROOM: 4
+      NETHER_WART: 8
+      # Урожай, семена, еда сырьём
+      WHEAT_SEEDS: 1
+      BEETROOT_SEEDS: 1
+      PUMPKIN_SEEDS: 2
+      MELON_SEEDS: 2
+      WHEAT: 4
+      CARROT: 4
+      POTATO: 4
+      BEETROOT: 4
+      PUMPKIN: 10
+      MELON_SLICE: 2
+      APPLE: 6
+      SWEET_BERRIES: 3
+      GLOW_BERRIES: 4
+      COCOA_BEANS: 5
+      CHORUS_FRUIT: 12
+      BEEF: 8
+      PORKCHOP: 8
+      CHICKEN: 6
+      MUTTON: 6
+      RABBIT: 6
+      COD: 4
+      SALMON: 5
+      TROPICAL_FISH: 8
+      PUFFERFISH: 10
+      EGG: 3
+      HONEYCOMB: 10
+      HONEY_BOTTLE: 15
+      # Дерево (брёвна 4: «из чего можно строить» — медные)
+      OAK_LOG: 4
+      SPRUCE_LOG: 4
+      BIRCH_LOG: 4
+      JUNGLE_LOG: 4
+      ACACIA_LOG: 4
+      DARK_OAK_LOG: 4
+      MANGROVE_LOG: 4
+      CHERRY_LOG: 4
+      PALE_OAK_LOG: 4
+      CRIMSON_STEM: 5
+      WARPED_STEM: 5
+      # Дроп с мобов
+      STRING: 4
+      FEATHER: 3
+      LEATHER: 8
+      BONE: 4
+      ROTTEN_FLESH: 1
+      SPIDER_EYE: 5
+      GUNPOWDER: 8
+      SLIME_BALL: 12
+      ENDER_PEARL: 60
+      BLAZE_ROD: 40
+      GHAST_TEAR: 60
+      PHANTOM_MEMBRANE: 40
+      PRISMARINE_SHARD: 15
+      PRISMARINE_CRYSTALS: 20
+      NAUTILUS_SHELL: 80
+      INK_SAC: 5
+      GLOW_INK_SAC: 12
+      RABBIT_HIDE: 4
+      RABBIT_FOOT: 60
+      TURTLE_SCUTE: 120
+      BREEZE_ROD: 30
+      EXPERIENCE_BOTTLE: 40
+      NAME_TAG: 80
+      SADDLE: 120
+      # Руды и минералы (железные монеты: ценное; алмаз = 100 = 1 железная — главный якорь)
+      COAL: 4
+      RAW_IRON: 12
+      RAW_COPPER: 8
+      RAW_GOLD: 28
+      REDSTONE: 6
+      LAPIS_LAZULI: 10
+      QUARTZ: 15
+      EMERALD: 50
+      DIAMOND: 100
+    # Редкий лут: не крафтится, падает редко. Золотые монеты (2 000) и выше.
+    rare-values:
+      NETHERITE_SCRAP: 250
+      NETHERITE_UPGRADE_SMITHING_TEMPLATE: 800
+      TOTEM_OF_UNDYING: 1500
+      ELYTRA: 12000
+      HEART_OF_THE_SEA: 800
+      NETHER_STAR: 6000
+      DRAGON_EGG: 40000
+      DRAGON_HEAD: 8000
+      WITHER_SKELETON_SKULL: 1500
+      TRIDENT: 4000
+      ENCHANTED_GOLDEN_APPLE: 5000
+      SHULKER_SHELL: 400
+      ECHO_SHARD: 600
+      WITHER_ROSE: 400
+      SPONGE: 400
 
 combat:
   # Сколько секунд игрок считается в бою после удара по игроку или от игрока.
