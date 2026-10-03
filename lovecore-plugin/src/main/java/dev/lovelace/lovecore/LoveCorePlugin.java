@@ -2,6 +2,7 @@ package dev.lovelace.lovecore;
 
 import dev.lovelace.lovecore.api.combat.CombatState;
 import dev.lovelace.lovecore.api.economy.LoveEconomy;
+import dev.lovelace.lovecore.api.economy.PriceOracle;
 import dev.lovelace.lovecore.api.economy.TaxOracle;
 import dev.lovelace.lovecore.api.notify.LoveNotify;
 import dev.lovelace.lovecore.api.social.ProfileOracle;
@@ -16,6 +17,7 @@ import dev.lovelace.lovecore.commands.LoveCoreAdminCommand;
 import dev.lovelace.lovecore.commands.NotifyCommand;
 import dev.lovelace.lovecore.commands.TaxCommand;
 import dev.lovelace.lovecore.economy.PhysicalEconomy;
+import dev.lovelace.lovecore.economy.PriceModel;
 import dev.lovelace.lovecore.economy.TaxOracleImpl;
 import dev.lovelace.lovecore.notify.LoveNotifyImpl;
 import dev.lovelace.lovecore.notify.NotifySettingsStore;
@@ -48,6 +50,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private BufferedStatBus statBus;
     private CombatTracker combat;
     private PhysicalEconomy economy;
+    private PriceModel priceModel;
     private ProfileOracle profileOracle;
     private TerritoryOracle territoryOracle;
     private ReputationOracle reputationOracle;
@@ -69,6 +72,10 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
         economy = new PhysicalEconomy(this);
         register(LoveEconomy.class, economy, "LoveEconomy");
+
+        // Модель цен читает рецепты сервера: строится на ServerLoadEvent, когда они загружены.
+        priceModel = new PriceModel(this);
+        register(PriceOracle.class, priceModel, "PriceOracle");
 
         combat = new CombatTracker(this);
         combat.start();
@@ -141,6 +148,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         // оракулы ниже: ItemsAdder мог ещё не включиться, когда ядро строило PhysicalEconomy
         // в onEnable() — тогда номиналы монет не находились бы вообще до перезапуска сервера.
         economy.linkItemsAdder(this);
+        priceModel.rebuild();
         linkOracles();
         getLogger().info("LoveCore готов, служб зарегистрировано: " + registered.size()
                 + " (" + String.join(", ", registered) + ").");
@@ -163,6 +171,14 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         Bukkit.getServicesManager().unregisterAll(this);
     }
 
+    public PhysicalEconomy getEconomy() {
+        return economy;
+    }
+
+    public PriceModel getPriceModel() {
+        return priceModel;
+    }
+
     /** Список зарегистрированных служб для админ-команды ({@code /lovecoreadmin}). */
     public List<String> getRegisteredServices() {
         return Collections.unmodifiableList(registered);
@@ -176,6 +192,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     public void reload() {
         reloadConfig();
         economy.reload(this);
+        priceModel.rebuild();
         combat.reload();
         statBus.reload();
         taxOracle.reload();

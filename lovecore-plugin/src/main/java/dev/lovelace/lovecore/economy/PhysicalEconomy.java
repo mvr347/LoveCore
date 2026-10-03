@@ -2,6 +2,7 @@ package dev.lovelace.lovecore.economy;
 
 import dev.lovelace.lovecore.api.economy.Denomination;
 import dev.lovelace.lovecore.api.economy.LoveEconomy;
+import dev.lovelace.lovecore.api.economy.MoneyParser;
 import dev.lovelace.lovecore.integration.Neighbour;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -13,6 +14,9 @@ import org.bukkit.plugin.Plugin;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.List;
 
 /**
@@ -37,7 +41,12 @@ import java.util.List;
 public final class PhysicalEconomy implements LoveEconomy {
 
     private String currencyName;
-    private List<Denomination> denominations;
+    /** Видимые номиналы: из них строятся сумма выдачи, сдача, глифы и обмен. */
+    private volatile List<Denomination> denominations;
+    /** Все номиналы, включая скрытые: по ним монета на руках опознаётся как деньги. */
+    private volatile List<Denomination> allDenominations;
+    private volatile double priceIndex = 1.0;
+    private volatile int scaleVersion = 1;
     private Neighbour itemsAdder;
     private Method byItemStack;
     private Method getNamespacedId;
@@ -45,9 +54,31 @@ public final class PhysicalEconomy implements LoveEconomy {
     private Method getItemStack;
 
     public PhysicalEconomy(Plugin plugin) {
-        this.currencyName = plugin.getConfig().getString("economy.currency-name", "монет");
-        this.denominations = loadDenominations(plugin);
+        applyConfig(plugin);
         linkItemsAdder(plugin);
+    }
+
+    private void applyConfig(Plugin plugin) {
+        this.currencyName = plugin.getConfig().getString("economy.currency-name", "монет");
+        List<Denomination> all = loadDenominations(plugin);
+        Set<String> hidden = new HashSet<>();
+        for (String id : plugin.getConfig().getStringList("economy.hidden-denominations")) {
+            hidden.add(shortId(id).toLowerCase(Locale.ROOT));
+        }
+        List<Denomination> visible = new ArrayList<>();
+        for (Denomination d : all) {
+            if (!hidden.contains(shortId(d.itemId()).toLowerCase(Locale.ROOT))) visible.add(d);
+        }
+        if (visible.isEmpty()) {
+            // A config that hides everything would make every payout vanish: ignore it.
+            plugin.getLogger().warning("economy.hidden-denominations скрывает все номиналы - игнорирую.");
+            visible = new ArrayList<>(all);
+        }
+        this.allDenominations = List.copyOf(all);
+        this.denominations = List.copyOf(visible);
+        double index = plugin.getConfig().getDouble("economy.price-index", 1.0);
+        this.priceIndex = index > 0 && Double.isFinite(index) ? index : 1.0;
+        this.scaleVersion = plugin.getConfig().getInt("economy.scale-version", 1);
     }
 
     /**
@@ -68,9 +99,15 @@ public final class PhysicalEconomy implements LoveEconomy {
     /** Re-reads currency name and denominations from config.yml, and re-resolves the
      *  ItemsAdder bridge in case it wasn't up yet at startup (or was reloaded since). */
     public void reload(Plugin plugin) {
-        this.currencyName = plugin.getConfig().getString("economy.currency-name", "монет");
-        this.denominations = loadDenominations(plugin);
+        applyConfig(plugin);
         linkItemsAdder(plugin);
+    }
+
+    /** Меняет индекс цен вживую и записывает его в config.yml ({@code /lovecoreadmin economy index}). */
+    public void setPriceIndex(Plugin plugin, double index) {
+        this.priceIndex = index;
+        plugin.getConfig().set("economy.price-index", index);
+        plugin.saveConfig();
     }
 
     private static List<Denomination> loadDenominations(Plugin plugin) {
@@ -82,11 +119,7 @@ public final class PhysicalEconomy implements LoveEconomy {
             }
         }
         if (list.isEmpty()) {
-            list.add(new Denomination("netherite_coin", 1000));
-            list.add(new Denomination("diamond_coin", 100));
-            list.add(new Denomination("gold_coin", 50));
-            list.add(new Denomination("iron_coin", 10));
-            list.add(new Denomination("copper_coin", 1));
+            list.addAll(MoneyParser.STANDARD);
         }
         list.sort((a, b) -> Long.compare(b.value(), a.value()));
         return List.copyOf(list);
@@ -100,6 +133,21 @@ public final class PhysicalEconomy implements LoveEconomy {
     @Override
     public List<Denomination> denominations() {
         return denominations;
+    }
+
+    @Override
+    public List<Denomination> allDenominations() {
+        return allDenominations;
+    }
+
+    @Override
+    public double priceIndex() {
+        return priceIndex;
+    }
+
+    @Override
+    public int economyScaleVersion() {
+        return scaleVersion;
     }
 
     @Override
@@ -272,7 +320,7 @@ public final class PhysicalEconomy implements LoveEconomy {
             return 0;
         }
         String shortId = shortId(id);
-        for (Denomination denomination : denominations) {
+        for (Denomination denomination : allDenominations) {
             if (shortId(denomination.itemId()).equalsIgnoreCase(shortId)) {
                 return denomination.value();
             }
