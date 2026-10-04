@@ -39,11 +39,56 @@ public final class PriceModel implements PriceOracle {
             return;
         }
         Config cfg = readConfig(section, log);
+        // price-overrides.yml wins over config.yml: it is written by /lovecoreadmin economy setprice
+        cfg.overrides.putAll(readOverridesFile(log));
         List<PriceModelCore.Recipe> recipes = RecipeReader.read();
         PriceModelCore.Result computed = PriceModelCore.compute(cfg, recipes);
         result = computed;
         log.info("Модель цен: оценено предметов " + computed.prices().size() + " (рецептов прочитано "
                 + recipes.size() + "), без цены осталось крафтовых: " + computed.unpriced().size() + ".");
+    }
+
+    private File overridesFile() {
+        return new File(plugin.getDataFolder(), "price-overrides.yml");
+    }
+
+    private Map<String, Long> readOverridesFile(Logger log) {
+        Map<String, Long> out = new java.util.LinkedHashMap<>();
+        File file = overridesFile();
+        if (!file.isFile()) return out;
+        ConfigurationSection prices = YamlConfiguration.loadConfiguration(file).getConfigurationSection("prices");
+        if (prices == null) return out;
+        for (String key : prices.getKeys(false)) {
+            Material m = Material.matchMaterial(key);
+            if (m == null) {
+                log.warning("price-overrides.yml: неизвестный материал " + key);
+                continue;
+            }
+            out.put(m.name(), prices.getLong(key));
+        }
+        return out;
+    }
+
+    /** Точная цена предмета (медные единицы) в price-overrides.yml; пересобирает модель. Главный поток. */
+    public void setOverride(Material material, long price) throws IOException {
+        writeOverride(material, price);
+    }
+
+    /** Убирает цену из price-overrides.yml; возвращает false, если её там не было. */
+    public boolean removeOverride(Material material) throws IOException {
+        if (!readOverridesFile(plugin.getLogger()).containsKey(material.name())) return false;
+        writeOverride(material, null);
+        return true;
+    }
+
+    private void writeOverride(Material material, Long price) throws IOException {
+        File file = overridesFile();
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        yaml.options().header("Точные цены предметов (медные единицы). Задаются командой "
+                + "/lovecoreadmin economy setprice, перекрывают economy.price-model.overrides из config.yml.");
+        yaml.set("prices." + material.name(), price);
+        yaml.save(file);
+        rebuild();
     }
 
     static Config readConfig(ConfigurationSection s, Logger log) {

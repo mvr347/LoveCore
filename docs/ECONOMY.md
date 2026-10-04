@@ -26,7 +26,18 @@
 Команды (`lovecore.admin`):
 - `/lovecoreadmin economy price <предмет>` — как посчитана цена;
 - `/lovecoreadmin economy dump-prices` — выгрузка в `price-model-dump.yml`;
-- `/lovecoreadmin economy index <число|reset|show>` — общий индекс цен.
+- `/lovecoreadmin economy index <число|reset|show>` — общий индекс цен;
+- `/lovecoreadmin economy setprice <предмет|held> <цена>` — точная цена предмета (`3i 50c`, `1.5g`, `250`); пишется в
+  `price-overrides.yml` и перекрывает модель и `economy.price-model.overrides`;
+- `/lovecoreadmin economy resetprice <предмет|held>` — снять ручную цену.
+
+## Как обновить цены
+
+1. Якоря и наценки — в `economy.price-model` (`raw-values`, `rare-values`, `craft-markup`, `item-markup`).
+2. Точечно — `setprice` (или `overrides` в `config.yml`); ручная цена побеждает всё остальное.
+3. `/lovecoreadmin reload` пересобирает модель; проверка — `economy price <предмет>`, обзор — `economy dump-prices`.
+4. Всё разом — `economy index`.
+5. LoveShop и LoveContracts читают цены при своём reload/старте — после правок перезагрузите их.
 
 ## Индекс цен (`economy.price-index`)
 
