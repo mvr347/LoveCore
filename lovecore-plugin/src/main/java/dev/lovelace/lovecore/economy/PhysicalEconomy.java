@@ -76,6 +76,7 @@ public final class PhysicalEconomy implements LoveEconomy {
         }
         this.allDenominations = List.copyOf(all);
         this.denominations = List.copyOf(visible);
+        warnIfDenominationsOutdated(plugin, all);
         double index = plugin.getConfig().getDouble("economy.price-index", 1.0);
         this.priceIndex = index > 0 && Double.isFinite(index) ? index : 1.0;
         this.scaleVersion = plugin.getConfig().getInt("economy.scale-version", 1);
@@ -108,6 +109,48 @@ public final class PhysicalEconomy implements LoveEconomy {
         this.priceIndex = index;
         plugin.getConfig().set("economy.price-index", index);
         plugin.saveConfig();
+    }
+
+    /**
+     * saveDefaultConfig() never touches an existing config.yml, so a server that set up LoveCore before the
+     * 2026-10-03 ladder keeps the old coin values: every plugin amount (200 copper = 2 iron coins) then reads as a
+     * different number of far more valuable coins. The values of the jar are compared with the ones in use and any
+     * difference is logged; the file itself is never changed - the admin may have set them on purpose.
+     */
+    private static void warnIfDenominationsOutdated(Plugin plugin, List<Denomination> inUse) {
+        try (java.io.InputStream in = plugin.getResource("config.yml")) {
+            if (in == null) return;
+            ConfigurationSection bundled = org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(
+                    new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))
+                    .getConfigurationSection("economy.denominations");
+            if (bundled == null) return;
+            java.util.Map<String, Long> jar = new java.util.LinkedHashMap<>();
+            for (String key : bundled.getKeys(false)) jar.put(shortId(key), bundled.getLong(key));
+            java.util.Map<String, Long> disk = new java.util.LinkedHashMap<>();
+            for (Denomination d : inUse) disk.put(shortId(d.itemId()), d.value());
+            List<String> differences = denominationDifferences(disk, jar);
+            if (!differences.isEmpty()) {
+                plugin.getLogger().warning("economy.denominations в config.yml отличаются от поставляемых с jar: "
+                        + String.join("; ", differences) + ". Суммы плагинов (в медных) от этого выглядят другим числом "
+                        + "других монет. Если это не намеренно - поправьте config.yml и перезапустите сервер.");
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            plugin.getLogger().fine("Не удалось сравнить номиналы с поставляемыми: " + e.getMessage());
+        }
+    }
+
+    /** Human-readable differences between the coin values in use and the bundled ones; empty when they match. */
+    static List<String> denominationDifferences(java.util.Map<String, Long> inUse, java.util.Map<String, Long> bundled) {
+        List<String> out = new ArrayList<>();
+        for (java.util.Map.Entry<String, Long> e : bundled.entrySet()) {
+            Long now = inUse.get(e.getKey());
+            if (now == null) out.add(e.getKey() + " нет в конфиге (в jar " + e.getValue() + ")");
+            else if (!now.equals(e.getValue())) out.add(e.getKey() + "=" + now + " (в jar " + e.getValue() + ")");
+        }
+        for (String id : inUse.keySet()) {
+            if (!bundled.containsKey(id)) out.add(id + " есть в конфиге, но нет в jar");
+        }
+        return out;
     }
 
     private static List<Denomination> loadDenominations(Plugin plugin) {

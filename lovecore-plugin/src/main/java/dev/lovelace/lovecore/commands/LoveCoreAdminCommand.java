@@ -229,6 +229,12 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(mm.deserialize("<gray>Индекс цен: <white>" + eco.priceIndex() + "</white>, версия масштаба: <white>"
                         + eco.economyScaleVersion() + "</white>, модель цен: <white>"
                         + (plugin.getPriceModel().ready() ? "построена" : "не построена") + "</white></gray>"));
+                StringBuilder coins = new StringBuilder();
+                for (var d : eco.allDenominations()) {
+                    if (coins.length() > 0) coins.append(", ");
+                    coins.append(d.itemId()).append(" = ").append(d.value());
+                }
+                sender.sendMessage(mm.deserialize("<gray>Номиналы (медных за монету): <white>" + coins + "</white></gray>"));
                 sender.sendMessage(mm.deserialize("<gray>/lovecoreadmin economy <index|price|setprice|resetprice|dump-prices></gray>"));
             }
         }
