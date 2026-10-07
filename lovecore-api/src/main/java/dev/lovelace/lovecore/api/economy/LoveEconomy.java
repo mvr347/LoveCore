@@ -4,6 +4,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Единая валюта экосистемы — физические предметы ItemsAdder в инвентаре игрока, а не запись
@@ -95,5 +96,19 @@ public interface LoveEconomy {
     /** Монета ли предмет — {@code valueOf(stack) > 0}. */
     default boolean isCoin(ItemStack stack) {
         return valueOf(stack) > 0;
+    }
+
+    /**
+     * Готовый стек монет указанного номинала — например, чтобы показать клановую казну
+     * настоящими монетами, которые можно взять мышкой. Количество ограничивается максимальным
+     * размером стека предмета.
+     *
+     * @param denomination номинал из {@link #allDenominations()}
+     * @param amount       сколько монет в стеке (больше нуля)
+     * @return стек, или {@code Optional.empty()}, если реализация не умеет строить монеты
+     *         (старая версия LoveCore) или предмет номинала сейчас не зарегистрирован
+     */
+    default Optional<ItemStack> coinStack(Denomination denomination, int amount) {
+        return Optional.empty();
     }
 }
