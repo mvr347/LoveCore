@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Валюта как физические предметы ItemsAdder в инвентаре игрока.
@@ -339,6 +340,20 @@ public final class PhysicalEconomy implements LoveEconomy {
             left -= size;
         }
         return result;
+    }
+
+    @Override
+    public Optional<ItemStack> coinStack(Denomination denomination, int amount) {
+        if (denomination == null || amount <= 0) {
+            return Optional.empty();
+        }
+        ItemStack template = templateFor(denomination.itemId());
+        if (template == null) {
+            return Optional.empty();
+        }
+        ItemStack stack = template.clone();
+        stack.setAmount(Math.min(amount, template.getMaxStackSize()));
+        return Optional.of(stack);
     }
 
     private ItemStack templateFor(String itemId) {
