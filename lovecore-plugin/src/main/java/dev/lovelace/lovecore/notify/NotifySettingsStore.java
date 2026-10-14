@@ -23,10 +23,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class NotifySettingsStore {
 
-    // По умолчанию включён только чат — title/actionbar игрок включает сам через
-    // /lovenotify toggle, если хочет. Чат никогда не выключается автоматически: см.
-    // guaranteed-fallback правило в LoveNotify и минимум-один-канал ниже в setChannelEnabled.
-    private static final Set<Channel> DEFAULT_CHANNELS = EnumSet.of(Channel.CHAT);
+    // Built-in default when config key notify.default-channels is absent or has no valid entry.
+    // 2026-10-14: owner decision - events go to the action bar by default; chat only gets
+    // overflow/important messages (the guaranteed-fallback rule in LoveNotify).
+    static final Set<Channel> BUILT_IN_DEFAULT_CHANNELS = EnumSet.of(Channel.ACTION_BAR);
+
+    private final Set<Channel> defaultChannels;
 
     private final JavaPlugin plugin;
     private final File file;
@@ -34,7 +36,27 @@ public final class NotifySettingsStore {
 
     public NotifySettingsStore(JavaPlugin plugin) {
         this.plugin = plugin;
+        this.defaultChannels = parseDefaultChannels(plugin.getConfig().getStringList("notify.default-channels"),
+                plugin.getLogger()::warning);
         this.file = new File(plugin.getDataFolder(), "notify-settings.yml");
+    }
+
+    /**
+     * Parses the configured default channel names. Unknown names are reported and skipped; an empty
+     * or fully invalid list falls back to the built-in default (at least one channel must stay on).
+     */
+    static Set<Channel> parseDefaultChannels(java.util.List<String> names, java.util.function.Consumer<String> warn) {
+        EnumSet<Channel> result = EnumSet.noneOf(Channel.class);
+        if (names != null) {
+            for (String name : names) {
+                try {
+                    result.add(Channel.valueOf(name.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_')));
+                } catch (IllegalArgumentException e) {
+                    warn.accept("Неизвестный канал в notify.default-channels: " + name);
+                }
+            }
+        }
+        return result.isEmpty() ? EnumSet.copyOf(BUILT_IN_DEFAULT_CHANNELS) : result;
     }
 
     public void load() {
@@ -48,7 +70,7 @@ public final class NotifySettingsStore {
                 UUID uuid = UUID.fromString(key);
                 EnumSet<Channel> enabled = EnumSet.noneOf(Channel.class);
                 for (Channel channel : Channel.values()) {
-                    if (yaml.getBoolean(key + "." + channel.name(), DEFAULT_CHANNELS.contains(channel))) {
+                    if (yaml.getBoolean(key + "." + channel.name(), defaultChannels.contains(channel))) {
                         enabled.add(channel);
                     }
                 }
@@ -62,7 +84,7 @@ public final class NotifySettingsStore {
     public Set<Channel> getEnabledChannels(UUID uuid) {
         EnumSet<Channel> stored = settings.get(uuid);
         if (stored == null) {
-            return EnumSet.copyOf(DEFAULT_CHANNELS);
+            return EnumSet.copyOf(defaultChannels);
         }
         // Same lock object setChannelEnabled mutates under: EnumSet isn't thread-safe, and
         // without this a reader on another thread (e.g. a PlaceholderAPI request, which can be
@@ -78,7 +100,7 @@ public final class NotifySettingsStore {
      * один канал должен быть включён всегда, иначе игрок не увидит вообще ничего).
      */
     public boolean setChannelEnabled(UUID uuid, Channel channel, boolean enabled) {
-        EnumSet<Channel> current = settings.computeIfAbsent(uuid, k -> EnumSet.copyOf(DEFAULT_CHANNELS));
+        EnumSet<Channel> current = settings.computeIfAbsent(uuid, k -> EnumSet.copyOf(defaultChannels));
         synchronized (current) {
             if (!enabled && current.size() == 1 && current.contains(channel)) {
                 return false;
