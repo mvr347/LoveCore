@@ -168,6 +168,9 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
             // ждать её здесь уже негде — досылаем синхронно, как statBus досылает буфер выше.
             notifySettingsStore.flush();
         }
+        if (discordService != null) {
+            discordService.shutdown();
+        }
         Bukkit.getServicesManager().unregisterAll(this);
     }
 

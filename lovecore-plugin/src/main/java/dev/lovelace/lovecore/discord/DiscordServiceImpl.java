@@ -72,6 +72,23 @@ public final class DiscordServiceImpl implements DiscordService {
                 .build();
     }
 
+    /** Stops polling and the HTTP executor; called from onDisable (load() may run again on reload, this must not). */
+    public void shutdown() {
+        if (pollingTask != null) {
+            pollingTask.cancel();
+            pollingTask = null;
+        }
+        httpExecutor.shutdown();
+        try {
+            if (!httpExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                httpExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            httpExecutor.shutdownNow();
+        }
+    }
+
     public void load() {
         ConfigurationSection sec = plugin.getConfig().getConfigurationSection("discord");
         this.enabled = sec != null && sec.getBoolean("enabled", false);
