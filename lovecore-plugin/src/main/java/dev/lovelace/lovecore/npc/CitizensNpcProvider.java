@@ -185,6 +185,24 @@ public final class CitizensNpcProvider implements NpcProvider, Listener {
         }
 
         @Override
+        public boolean spawn() {
+            if (!npc.isSpawned()) {
+                Location stored = npc.getStoredLocation();
+                if (stored != null) {
+                    npc.spawn(stored);
+                }
+            }
+            return npc.isSpawned();
+        }
+
+        @Override
+        public boolean despawn() {
+            boolean wasSpawned = npc.isSpawned();
+            npc.despawn();
+            return wasSpawned;
+        }
+
+        @Override
         public Location location() {
             return npc.isSpawned() ? npc.getEntity().getLocation() : npc.getStoredLocation();
         }
@@ -192,6 +210,15 @@ public final class CitizensNpcProvider implements NpcProvider, Listener {
         @Override
         public void setName(Component name) {
             npc.setName(LEGACY.serialize(name));
+        }
+
+        @Override
+        public Optional<String> skinName() {
+            if (!npc.hasTrait(SkinTrait.class)) {
+                return Optional.empty();
+            }
+            String name = npc.getOrAddTrait(SkinTrait.class).getSkinName();
+            return name == null || name.isBlank() ? Optional.empty() : Optional.of(name);
         }
 
         @Override
