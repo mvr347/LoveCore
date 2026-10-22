@@ -67,6 +67,23 @@ softdepend: [LoveCore]
 | `TerritoryOracle` | владелец точки, враждебность | LoveClaims |
 | `ReputationOracle` | репутация 0..100 и ступень | LoveBehavior |
 | `LoveNotify` | title/actionbar/chat как независимые каналы, переключаемые игроком | свой |
+| `NpcProvider` | NPC: поиск по ключу, создание, метки, голограммы, скин; события `NpcClickEvent`, `NpcSpawnEvent` | Citizens или LoveEssential |
+| `PresenceOracle` | скрыт ли игрок, AFK, имя для показа, скин | CMI или LoveEssential |
+| `DownedOracle` | лежит ли игрок раненым, поднимают ли его | ReviveMe или LoveEssential |
+
+### Контракты с несколькими реализациями
+
+`NpcProvider`, `PresenceOracle` и `DownedOracle` наследуют `Named`: на сервере могут жить сразу
+Citizens и LoveEssential, и какой использовать, решает конфиг каждого плагина-потребителя
+(`integrations.npc-provider: citizens|loveessential`). Нужную реализацию находит
+`LoveCore.provider(NpcProvider.class, id)`; пустой ответ значит, что выбранный провайдер не
+установлен или не поднялся. Ядро само поднимает адаптеры `citizens` (NpcProvider) и `cmi`
+(PresenceOracle); реализации `loveessential` регистрирует LoveEssential.
+
+```java
+String id = getConfig().getString("integrations.npc-provider", "citizens");
+NpcProvider npcs = LoveCore.provider(NpcProvider.class, id).orElse(null);
+```
 
 ### LoveEconomy API
 

@@ -27,6 +27,8 @@ loadbefore:
 # все. PlaceholderAPI — не сосед по экосистеме, это ограничение на него не распространяется.
 softdepend:
   - PlaceholderAPI
+  - Citizens
+  - CMI
 
 commands:
   lovecoreadmin:
