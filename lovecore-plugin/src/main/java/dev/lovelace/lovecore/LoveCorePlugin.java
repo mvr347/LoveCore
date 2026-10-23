@@ -59,6 +59,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private TaxOracleImpl taxOracle;
     private dev.lovelace.lovecore.discord.DiscordServiceImpl discordService;
     private AliasRegistry aliasRegistry;
+    private dev.lovelace.lovecore.integration.IntegrationSettingsImpl integrationSettings;
     private AliasManager aliasManager;
     private dev.lovelace.lovecore.npc.CitizensNpcProvider citizensNpc;
     private dev.lovelace.lovecore.presence.CmiPresenceOracle cmiPresence;
@@ -82,6 +83,10 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         combat = new CombatTracker(this);
         combat.start();
         register(CombatState.class, combat, "CombatState");
+
+        integrationSettings = new dev.lovelace.lovecore.integration.IntegrationSettingsImpl(getLogger());
+        integrationSettings.load(getConfig());
+        register(dev.lovelace.lovecore.api.provider.IntegrationSettings.class, integrationSettings, "IntegrationSettings");
 
         notifySettingsStore = new NotifySettingsStore(this);
         notifySettingsStore.load();
@@ -202,6 +207,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         statBus.reload();
         taxOracle.reload();
         loveNotify.reload();
+        integrationSettings.load(getConfig());
         discordService.load();
         aliasRegistry.load();
         aliasManager.applyAll();
