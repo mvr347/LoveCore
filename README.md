@@ -70,6 +70,7 @@ softdepend: [LoveCore]
 | `NpcProvider` | NPC: поиск по ключу, создание, метки, голограммы, скин; события `NpcClickEvent`, `NpcSpawnEvent` | Citizens или LoveEssential |
 | `PresenceOracle` | скрыт ли игрок, AFK, имя для показа, скин | CMI или LoveEssential |
 | `DownedOracle` | лежит ли игрок раненым, поднимают ли его | ReviveMe или LoveEssential |
+| `DisplayPrefs` | личные флаги показа тега клана и суффикса: чат, TAB, ник над головой | LoveEssential |
 
 ### Контракты с несколькими реализациями
 
@@ -81,8 +82,27 @@ Citizens и LoveEssential, и какой использовать, решает 
 (PresenceOracle); реализации `loveessential` регистрирует LoveEssential.
 
 ```java
-String id = getConfig().getString("integrations.npc-provider", "citizens");
+String id = LoveCore.providerId(ProviderKind.NPC, getConfig().getString("integrations.npc-provider", "global"));
 NpcProvider npcs = LoveCore.provider(NpcProvider.class, id).orElse(null);
+```
+
+**Общий выбор для всех плагинов.** В `config.yml` ядра ключ `integrations.provider`
+(`external` по умолчанию | `loveessential`) задаёт провайдера сразу всем плагинам: внешние
+Citizens, CMI и ReviveMe либо LoveEssential. Плагин следует ему, пока в его конфиге стоит
+`global` (или ключ удалён); явное `citizens`, `cmi`, `reviveme` или `loveessential` побеждает.
+Развёртывает значение `LoveCore.providerId(ProviderKind, значение_из_конфига)`; результат не
+кэшируют, выбор меняется через `/lovecoreadmin reload`. Ключи привязки NPC у провайдеров разные,
+поэтому после смены значения NPC перепривязывают.
+
+### Личный показ тегов и суффиксов
+
+`DisplayPrefs` хранит выбор игрока: показывать ли тег клана и суффикс в чате, в списке игроков и над
+головой. На каждую пару «поверхность × элемент» два флага: `OWN` («показывать мои»: скрывает подпись
+у всех) и `OTHERS` («показывать мне чужие»). Реализацию регистрирует LoveEssential; без неё всё показано.
+
+```java
+boolean show = LoveCore.displayVisible(author.getUniqueId(), viewer.getUniqueId(),
+        DisplayPrefs.Surface.CHAT, DisplayPrefs.Element.CLAN_TAG);
 ```
 
 ### LoveEconomy API
