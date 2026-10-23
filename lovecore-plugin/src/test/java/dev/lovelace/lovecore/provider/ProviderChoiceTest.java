@@ -54,4 +54,16 @@ class ProviderChoiceTest {
         assertTrue(ProviderChoice.followsGlobal("Global"));
         assertFalse(ProviderChoice.followsGlobal("citizens"));
     }
+
+    @Test
+    void withoutAServerTheCoreIsAbsentAndPluginsKeepTheirOwnDefaults() {
+        // Plain unit tests of plugins run without Bukkit: the lookups must say "no core", not throw.
+        assertTrue(dev.lovelace.lovecore.api.LoveCore.service(dev.lovelace.lovecore.api.provider.IntegrationSettings.class).isEmpty());
+        assertEquals("citizens", dev.lovelace.lovecore.api.LoveCore.providerId(ProviderKind.NPC, "global"));
+        assertEquals("cmi", dev.lovelace.lovecore.api.LoveCore.providerId(ProviderKind.PRESENCE, ""));
+        assertEquals("loveessential", dev.lovelace.lovecore.api.LoveCore.providerId(ProviderKind.NPC, "LoveEssential"));
+        assertTrue(dev.lovelace.lovecore.api.LoveCore.displayVisible(java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                dev.lovelace.lovecore.api.display.DisplayPrefs.Surface.CHAT, dev.lovelace.lovecore.api.display.DisplayPrefs.Element.SUFFIX));
+        assertTrue(dev.lovelace.lovecore.api.LoveCore.provider(dev.lovelace.lovecore.api.npc.NpcProvider.class, "citizens").isEmpty());
+    }
 }

@@ -41,6 +41,10 @@ public final class LoveCore {
      * более точную реализацию оракула позже, и закэшированная ссылка её не увидит.</p>
      */
     public static <T> Optional<T> service(Class<T> type) {
+        // No server (a unit test, an early static initialiser): there is no core either.
+        if (Bukkit.getServer() == null) {
+            return Optional.empty();
+        }
         RegisteredServiceProvider<T> provider = Bukkit.getServicesManager().getRegistration(type);
         return Optional.ofNullable(provider).map(RegisteredServiceProvider::getProvider);
     }
@@ -54,6 +58,9 @@ public final class LoveCore {
      * не поднялся, — потребитель говорит об этом вслух и работает без интеграции.</p>
      */
     public static <T extends Named> Optional<T> provider(Class<T> type, String providerId) {
+        if (Bukkit.getServer() == null) {
+            return Optional.empty();
+        }
         List<T> candidates = new ArrayList<>();
         for (RegisteredServiceProvider<T> registration : Bukkit.getServicesManager().getRegistrations(type)) {
             candidates.add(registration.getProvider());
