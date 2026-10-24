@@ -85,7 +85,8 @@ public final class NotifySettingsStore {
             database = CoreDatabase.open(new File(dataFolder, "lovecore.db"));
             importLegacyYaml();
             readAll();
-        } catch (SQLException e) {
+        } catch (SQLException | LinkageError e) {
+            // LinkageError: the driver or its native library cannot be loaded; the core must still start.
             database = null;
             log.warning("Не удалось открыть lovecore.db, настройки уведомлений будут жить только в памяти: " + e.getMessage());
         }
