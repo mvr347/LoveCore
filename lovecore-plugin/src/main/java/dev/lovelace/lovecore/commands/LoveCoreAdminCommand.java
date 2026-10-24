@@ -32,7 +32,7 @@ import java.util.UUID;
  */
 public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
 
-    private static final List<String> SUBCOMMANDS = List.of("reload", "help", "cleardata", "economy");
+    private static final List<String> SUBCOMMANDS = List.of("reload", "help", "cleardata", "economy", "provider");
 
     private final LoveCorePlugin plugin;
     private final MiniMessage mm = MiniMessage.miniMessage();
@@ -52,6 +52,10 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("help")) {
             sendHelp(sender);
+            return true;
+        }
+        if (args.length > 0 && args[0].equalsIgnoreCase("provider")) {
+            handleProvider(sender, args);
             return true;
         }
         if (args.length > 0 && args[0].equalsIgnoreCase("cleardata")) {
@@ -125,6 +129,60 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
                 }
             });
         });
+    }
+
+
+    /**
+     * {@code /lovecoreadmin provider [love|other]}: one switch for every plugin that can use Citizens,
+     * CMI or ReviveMe. Sets the shared choice and resets the values that pin a plugin to one provider,
+     * because a pinned value would otherwise win over the shared choice.
+     */
+    private void handleProvider(@NotNull CommandSender sender, @NotNull String[] args) {
+        var settings = plugin.getIntegrationSettings();
+        if (args.length < 2) {
+            sender.sendMessage(mm.deserialize("<gray>Общий выбор: <white>" + settings.provider()
+                    + "</white> (love = LoveEssential, other = Citizens/CMI/ReviveMe)</gray>"));
+            for (var target : dev.lovelace.lovecore.integration.ProviderSwitch.TARGETS) {
+                var other = Bukkit.getPluginManager().getPlugin(target.plugin());
+                if (other == null || !other.isEnabled()) continue;
+                String value = other.getConfig().getString(target.key(), "global");
+                sender.sendMessage(mm.deserialize("<gray>  " + target.plugin() + " <white>" + target.key() + "</white>: "
+                        + (dev.lovelace.lovecore.integration.ProviderSwitch.pinned(value)
+                                ? "<yellow>" + value + "</yellow> (закреплено)" : "<green>global</green>") + "</gray>"));
+            }
+            sender.sendMessage(mm.deserialize("<gray>Переключить всё: <white>/lovecoreadmin provider <love|other></white></gray>"));
+            return;
+        }
+        var choice = dev.lovelace.lovecore.integration.ProviderSwitch.parse(args[1]);
+        if (choice.isEmpty()) {
+            sender.sendMessage(mm.deserialize("<red>Использование: /lovecoreadmin provider <love|other></red>"));
+            return;
+        }
+        String before = settings.provider();
+        plugin.getConfig().set("integrations.provider", choice.get());
+        plugin.saveConfig();
+        plugin.reload();
+        sender.sendMessage(mm.deserialize("<green>✔ Общий выбор: <white>" + before + " → " + choice.get() + "</white></green>"));
+
+        java.util.Set<String> reload = new java.util.TreeSet<>();
+        for (var target : dev.lovelace.lovecore.integration.ProviderSwitch.TARGETS) {
+            var other = Bukkit.getPluginManager().getPlugin(target.plugin());
+            if (other == null || !other.isEnabled()) continue;
+            String value = other.getConfig().getString(target.key(), "global");
+            if (!dev.lovelace.lovecore.integration.ProviderSwitch.pinned(value)) continue;
+            other.getConfig().set(target.key(), "global");
+            other.saveConfig();
+            sender.sendMessage(mm.deserialize("<gray>  " + target.plugin() + " <white>" + target.key() + "</white>: "
+                    + value + " → global</gray>"));
+            reload.add(target.plugin());
+        }
+        if (reload.isEmpty()) {
+            sender.sendMessage(mm.deserialize("<gray>Закреплённых значений в плагинах не было.</gray>"));
+        }
+        sender.sendMessage(mm.deserialize("<yellow>Привязки NPC у провайдеров разные: перепривяжите NPC командами "
+                + "плагинов (герольд LoveTweaks, LoveShops, LoveClans, стенды LoveLeaderboards).</yellow>"));
+        sender.sendMessage(mm.deserialize("<yellow>Выбор читают при загрузке LoveHunt, скины LoveChat и revive LoveTweaks: "
+                + "перезагрузите эти плагины или сервер.</yellow>"));
     }
 
     /** {@code /lovecoreadmin economy <index|price|dump-prices|status>}: ручки общей экономики. */
@@ -295,6 +353,9 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
                 "<gold>/lovecoreadmin economy <index|price|setprice|resetprice|dump-prices></gold> <gray>- Индекс цен, разбор цены, "
                         + "точная цена предмета, выгрузка модели цен</gray>"));
         sender.sendMessage(mm.deserialize(
+                "<gold>/lovecoreadmin provider [love|other]</gold> <gray>- Переключить все плагины между LoveEssential "
+                        + "и Citizens/CMI/ReviveMe</gray>"));
+        sender.sendMessage(mm.deserialize(
                 "<gold>/lovecoreadmin cleardata <игрок> confirm</gold> <gray>- Стереть данные игрока во всех "
                         + "плагинах, кроме LoveAuth (необратимо)</gray>"));
         sendFooter(sender);
@@ -320,6 +381,9 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2 && args[0].equalsIgnoreCase("cleardata")) {
             List<String> names = Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
             return StringUtil.copyPartialMatches(args[1], names, new ArrayList<>());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("provider")) {
+            return StringUtil.copyPartialMatches(args[1], List.of("love", "other"), new ArrayList<>());
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("economy")) {
             return StringUtil.copyPartialMatches(args[1], List.of("status", "index", "price", "setprice", "resetprice", "dump-prices"), new ArrayList<>());

@@ -17,6 +17,9 @@ integrations:
   # требуют reload самого плагина.
   # Уже сохранённые на сервере значения `citizens`/`cmi`/`reviveme` в конфигах плагинов остаются явными: чтобы
   # плагин следовал общему выбору, замените его на `global`.
+  # 2026-10-24: всё это делает одна команда /lovecoreadmin provider love|other - меняет общий выбор и сбрасывает
+  # закреплённые значения в LoveTweaks, LoveShops, LoveClans, LoveHunt, LoveBrewing, LoveClaims, LoveContracts,
+  # LoveLeaderboards и LoveChat на `global`. Без аргумента показывает, что закреплено.
   provider: external
 
 economy:
