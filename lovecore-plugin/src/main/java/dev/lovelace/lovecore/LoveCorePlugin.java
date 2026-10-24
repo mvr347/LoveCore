@@ -181,6 +181,10 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         Bukkit.getServicesManager().unregisterAll(this);
     }
 
+    public dev.lovelace.lovecore.integration.IntegrationSettingsImpl getIntegrationSettings() {
+        return integrationSettings;
+    }
+
     public PhysicalEconomy getEconomy() {
         return economy;
     }
