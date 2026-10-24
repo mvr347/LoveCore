@@ -85,8 +85,9 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
         boolean confirmed = args.length >= 3 && args[2].equalsIgnoreCase("confirm");
         if (!confirmed) {
             sender.sendMessage(mm.deserialize(
-                    "<red>Необратимо. LoveAuth, настройки чата/скорборда и метки LoveSubnames не трогает — "
-                            + "остальное стирается безвозвратно. Повторите с confirm: <white>/lovecoreadmin cleardata "
+                    "<red>Необратимо. Игровой прогресс стирается безвозвратно. Не трогает LoveAuth и настройки игрока "
+                            + "(уведомления LoveNotify, чат, скорборд, /display) с метками LoveSubnames. "
+                            + "Повторите с confirm: <white>/lovecoreadmin cleardata "
                             + playerName + " confirm</white></red>"));
             return;
         }
@@ -113,7 +114,7 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
                 }
 
                 sender.sendMessage(mm.deserialize("<yellow>Стираю данные игрока <white>" + playerName + "</white> ("
-                        + providers.size() + " плагин(ов))...</yellow>"));
+                        + providers.size() + " плагин(ов)). Настройки игрока сохраняются.</yellow>"));
 
                 for (RegisteredServiceProvider<PlayerDataEraser> registration : providers) {
                     PlayerDataEraser eraser = registration.getProvider();
@@ -356,8 +357,8 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
                 "<gold>/lovecoreadmin provider [love|other]</gold> <gray>- Переключить все плагины между LoveEssential "
                         + "и Citizens/CMI/ReviveMe</gray>"));
         sender.sendMessage(mm.deserialize(
-                "<gold>/lovecoreadmin cleardata <игрок> confirm</gold> <gray>- Стереть данные игрока во всех "
-                        + "плагинах, кроме LoveAuth (необратимо)</gray>"));
+                "<gold>/lovecoreadmin cleardata <игрок> confirm</gold> <gray>- Стереть прогресс игрока во всех "
+                        + "плагинах; LoveAuth и настройки игрока сохраняются (необратимо)</gray>"));
         sendFooter(sender);
     }
 

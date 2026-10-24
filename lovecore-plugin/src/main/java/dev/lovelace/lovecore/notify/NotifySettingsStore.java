@@ -1,25 +1,33 @@
 package dev.lovelace.lovecore.notify;
 
 import dev.lovelace.lovecore.api.notify.LoveNotify.Channel;
-import org.bukkit.Bukkit;
+import dev.lovelace.lovecore.storage.CoreDatabase;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
-import java.io.IOException;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 /**
- * Персистентное хранилище переключателей LoveNotify (title/actionbar/chat на игрока) —
- * плоский YAML-файл, не SQLite: у ядра сегодня вообще нет базы, а тут всего три булевых
- * значения на игрока, так что заводить SQL-таблицу ради этого было бы избыточно.
+ * Персистентное хранилище переключателей LoveNotify (title/actionbar/chat на игрока) в SQLite
+ * ({@code lovecore.db}, таблица {@code notify_settings}). Раньше это был плоский YAML-файл.
  *
- * <p>Весь файл целиком читается в память при старте и пишется обратно (асинхронно) при
- * каждом изменении — при типичном масштабе (сотни-тысячи игроков, редкие тумблеры) это
- * дешевле, чем городить построчный формат.</p>
+ * <p>Все значения держатся в памяти (PlaceholderAPI читает их с любого потока), а запись идёт
+ * построчно одним фоновым потоком. Если базу открыть не удалось, ядро работает на значениях по
+ * умолчанию в памяти и один раз пишет об этом в лог. Старый {@code notify-settings.yml} при первом
+ * запуске переносится в базу и переименовывается в {@code .migrated}.</p>
+ *
+ * <p>Это настройки игрока, а не прогресс: {@code /lovecoreadmin cleardata} их не стирает.</p>
  */
 public final class NotifySettingsStore {
 
@@ -30,15 +38,27 @@ public final class NotifySettingsStore {
 
     private final Set<Channel> defaultChannels;
 
-    private final JavaPlugin plugin;
-    private final File file;
+    private final Logger log;
+    private final File dataFolder;
     private final ConcurrentHashMap<UUID, EnumSet<Channel>> settings = new ConcurrentHashMap<>();
+    private final ExecutorService writer = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "LoveCore-settings");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private volatile CoreDatabase database;
 
     public NotifySettingsStore(JavaPlugin plugin) {
-        this.plugin = plugin;
-        this.defaultChannels = parseDefaultChannels(plugin.getConfig().getStringList("notify.default-channels"),
-                plugin.getLogger()::warning);
-        this.file = new File(plugin.getDataFolder(), "notify-settings.yml");
+        this(plugin.getDataFolder(),
+                parseDefaultChannels(plugin.getConfig().getStringList("notify.default-channels"),
+                        plugin.getLogger()::warning),
+                plugin.getLogger());
+    }
+
+    NotifySettingsStore(File dataFolder, Set<Channel> defaultChannels, Logger log) {
+        this.dataFolder = dataFolder;
+        this.defaultChannels = defaultChannels;
+        this.log = log;
     }
 
     /**
@@ -61,24 +81,79 @@ public final class NotifySettingsStore {
 
     public void load() {
         settings.clear();
-        if (!file.exists()) {
-            return;
+        try {
+            database = CoreDatabase.open(new File(dataFolder, "lovecore.db"));
+            importLegacyYaml();
+            readAll();
+        } catch (SQLException e) {
+            database = null;
+            log.warning("Не удалось открыть lovecore.db, настройки уведомлений будут жить только в памяти: " + e.getMessage());
         }
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-        for (String key : yaml.getKeys(false)) {
-            try {
-                UUID uuid = UUID.fromString(key);
-                EnumSet<Channel> enabled = EnumSet.noneOf(Channel.class);
-                for (Channel channel : Channel.values()) {
-                    if (yaml.getBoolean(key + "." + channel.name(), defaultChannels.contains(channel))) {
+    }
+
+    private void readAll() throws SQLException {
+        try (PreparedStatement statement = database.connection()
+                .prepareStatement("SELECT uuid, channel, enabled FROM notify_settings");
+             ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                try {
+                    UUID uuid = UUID.fromString(rows.getString(1));
+                    Channel channel = Channel.valueOf(rows.getString(2));
+                    EnumSet<Channel> enabled = settings.computeIfAbsent(uuid, k -> EnumSet.copyOf(defaultChannels));
+                    if (rows.getInt(3) != 0) {
                         enabled.add(channel);
+                    } else {
+                        enabled.remove(channel);
                     }
+                } catch (IllegalArgumentException e) {
+                    log.warning("Некорректная строка в notify_settings: " + rows.getString(1) + " / " + rows.getString(2));
                 }
-                settings.put(uuid, enabled);
-            } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Некорректный UUID в notify-settings.yml: " + key);
             }
         }
+    }
+
+    /** One-time move of notify-settings.yml into the table; the file is kept as {@code .migrated}. */
+    private void importLegacyYaml() throws SQLException {
+        File legacy = new File(dataFolder, "notify-settings.yml");
+        if (!legacy.exists()) {
+            return;
+        }
+        var connection = database.connection();
+        try (var count = connection.createStatement(); var rows = count.executeQuery("SELECT COUNT(*) FROM notify_settings")) {
+            if (rows.next() && rows.getInt(1) > 0) {
+                return;
+            }
+        }
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(legacy);
+        connection.setAutoCommit(false);
+        try (PreparedStatement insert = connection.prepareStatement(
+                "INSERT OR REPLACE INTO notify_settings (uuid, channel, enabled) VALUES (?, ?, ?)")) {
+            for (String key : yaml.getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(key);
+                    for (Channel channel : Channel.values()) {
+                        boolean on = yaml.getBoolean(key + "." + channel.name(), defaultChannels.contains(channel));
+                        insert.setString(1, uuid.toString());
+                        insert.setString(2, channel.name());
+                        insert.setInt(3, on ? 1 : 0);
+                        insert.addBatch();
+                    }
+                } catch (IllegalArgumentException e) {
+                    log.warning("Некорректный UUID в notify-settings.yml: " + key);
+                }
+            }
+            insert.executeBatch();
+            connection.commit();
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(true);
+        }
+        if (!legacy.renameTo(new File(dataFolder, "notify-settings.yml.migrated"))) {
+            log.warning("notify-settings.yml перенесён в базу, но не переименован: удалите его вручную.");
+        }
+        log.info("Настройки уведомлений перенесены из notify-settings.yml в lovecore.db.");
     }
 
     public Set<Channel> getEnabledChannels(UUID uuid) {
@@ -101,6 +176,7 @@ public final class NotifySettingsStore {
      */
     public boolean setChannelEnabled(UUID uuid, Channel channel, boolean enabled) {
         EnumSet<Channel> current = settings.computeIfAbsent(uuid, k -> EnumSet.copyOf(defaultChannels));
+        EnumSet<Channel> snapshot;
         synchronized (current) {
             if (!enabled && current.size() == 1 && current.contains(channel)) {
                 return false;
@@ -110,45 +186,48 @@ public final class NotifySettingsStore {
             } else {
                 current.remove(channel);
             }
+            snapshot = EnumSet.copyOf(current);
         }
-        saveAsync();
+        writer.execute(() -> write(uuid, snapshot));
         return true;
     }
 
-    private void saveAsync() {
-        Bukkit.getAsyncScheduler().runNow(plugin, task -> writeToDisk());
+    private void write(UUID uuid, Set<Channel> enabled) {
+        CoreDatabase db = database;
+        if (db == null) {
+            return;
+        }
+        try (PreparedStatement upsert = db.connection().prepareStatement(
+                "INSERT OR REPLACE INTO notify_settings (uuid, channel, enabled) VALUES (?, ?, ?)")) {
+            for (Channel channel : Channel.values()) {
+                upsert.setString(1, uuid.toString());
+                upsert.setString(2, channel.name());
+                upsert.setInt(3, enabled.contains(channel) ? 1 : 0);
+                upsert.addBatch();
+            }
+            upsert.executeBatch();
+        } catch (SQLException e) {
+            log.warning("Не удалось сохранить настройки уведомлений: " + e.getMessage());
+        }
     }
 
     /**
-     * Синхронный вариант {@link #saveAsync()} для {@code onDisable}: на выключении сервера
-     * ждать асинхронную задачу уже негде, а последний тумблер игрока перед остановкой не
-     * должен потеряться так же, как {@link dev.lovelace.lovecore.stats.BufferedStatBus}
-     * досылает накопленную статистику синхронно перед выходом.
+     * Дожидается записей в очереди и закрывает базу; вызывается из {@code onDisable}, чтобы
+     * последний тумблер игрока перед остановкой не потерялся.
      */
     public void flush() {
-        writeToDisk();
-    }
-
-    private void writeToDisk() {
-        YamlConfiguration yaml = new YamlConfiguration();
-        for (var entry : settings.entrySet()) {
-            String base = entry.getKey().toString();
-            EnumSet<Channel> value = entry.getValue();
-            // Тот же замок, что и на записи в setChannelEnabled/getEnabledChannels: EnumSet не
-            // потокобезопасен, а сериализация читает его поэлементно.
-            synchronized (value) {
-                for (Channel channel : Channel.values()) {
-                    yaml.set(base + "." + channel.name(), value.contains(channel));
-                }
-            }
-        }
+        writer.shutdown();
         try {
-            if (!plugin.getDataFolder().exists()) {
-                plugin.getDataFolder().mkdirs();
+            if (!writer.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.warning("Очередь записи настроек уведомлений не опустела за 5 секунд.");
             }
-            yaml.save(file);
-        } catch (IOException e) {
-            plugin.getLogger().warning("Не удалось сохранить notify-settings.yml: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        CoreDatabase db = database;
+        database = null;
+        if (db != null) {
+            db.close();
         }
     }
 }
