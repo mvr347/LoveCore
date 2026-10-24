@@ -96,14 +96,10 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
-                            <relocations>
-                                <!-- Драйвер переезжает в свой пакет: соседние плагины шейдят
-                                     тот же org.sqlite, и без переноса классы столкнулись бы. -->
-                                <relocation>
-                                    <pattern>org.sqlite</pattern>
-                                    <shadedPattern>dev.lovelace.lovecore.libs.sqlite</shadedPattern>
-                                </relocation>
-                            </relocations>
+                            <!-- org.sqlite is NOT relocated: sqlite-jdbc ships JNI natives bound to the
+                                 original class name (org.sqlite.core.NativeDB), and a relocated copy
+                                 fails with UnsatisfiedLinkError the first time a database is opened.
+                                 Other plugins ship their own unrelocated copy; each loader keeps its own. -->
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
