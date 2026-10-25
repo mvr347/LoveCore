@@ -8,11 +8,12 @@ description: 'Общее ядро экосистемы Love*: реестр сл�
 # Ядро поднимается раньше всех, кто у него спрашивает: службы должны быть в ServicesManager
 # к моменту, когда сосед впервые их запросит.
 loadbefore:
-  - LoveShop
+  - LoveEssential
+  - LoveShops
   - LoveClans
   - LoveClaims
   - LoveHunt
-  - LoveBrew
+  - LoveBrewing
   - LoveTrades
   - LoveTweaks
   - LoveSubnames
