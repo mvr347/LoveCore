@@ -4,6 +4,7 @@ import dev.lovelace.lovecore.api.discord.DiscordEmbed;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 class DiscordPayloadTest {
+    @Test void ticketTypesHaveSeparateIdentityNamespaces(){assertNotEquals(DiscordServiceImpl.ticketKey(dev.lovelace.lovecore.api.discord.TicketType.SUPPORT,"12"),DiscordServiceImpl.ticketKey(dev.lovelace.lovecore.api.discord.TicketType.BAN_APPEAL,"12"));}
     @Test void textLimitsDoNotSplitSurrogatePairs(){assertEquals("a",DiscordServiceImpl.cap("a🏰b",2));assertEquals("a🏰",DiscordServiceImpl.cap("a🏰b",3));}
     @Test void embedRespectsPerFieldAndCombinedLimits(){
         try(var service=new DiscordServiceImpl(null)){

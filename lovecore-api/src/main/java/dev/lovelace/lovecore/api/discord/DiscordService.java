@@ -68,5 +68,7 @@ public interface DiscordService {
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Private ticket ownership requires Discord API v2"));
     }
     default void restoreTicket(String ticketId,String channelId) {}
+    /** Typed namespaces prevent support ticket IDs colliding with appeal IDs. */
+    default void restoreTicket(TicketType type,String ticketId,String channelId) {restoreTicket(type.name()+":"+ticketId,channelId);}
 }
 
