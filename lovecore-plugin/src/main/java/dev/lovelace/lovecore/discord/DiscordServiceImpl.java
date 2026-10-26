@@ -43,13 +43,13 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     private final Gson gson = new Gson();
     private final SecureRandom random = new SecureRandom();
 
-    private boolean enabled;
-    private String botToken;
-    private String guildId;
-    private String appealsCategoryId;
-    private String supportCategoryId;
-    private String reportsChannelId;
-    private String appealsLogChannelId;
+    private volatile boolean enabled;
+    private volatile String botToken;
+    private volatile String guildId;
+    private volatile String appealsCategoryId;
+    private volatile String supportCategoryId;
+    private volatile String reportsChannelId;
+    private volatile String appealsLogChannelId;
 
     private final Map<UUID, String> playerToDiscord = new ConcurrentHashMap<>();
     private final Map<String, UUID> discordToPlayer = new ConcurrentHashMap<>();
@@ -201,7 +201,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         JsonObject body = new JsonObject();
         body.add("allowed_mentions", noMentions());
         if (message != null && !message.isBlank()) {
-            body.addProperty("content", message);
+            body.addProperty("content", cap(message,2000));
         }
         if (embed != null) {
             JsonArray embeds = new JsonArray();
@@ -235,11 +235,12 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         return sendPostRequest("/interactions/"+i.id()+"/"+i.token()+"/callback",json).thenApply(r->r!=null&&r.statusCode()<300);
     }
     @Override public CompletableFuture<Boolean> editResponse(dev.lovelace.lovecore.api.discord.DiscordInteraction i,String content) {
-        JsonObject p=new JsonObject();p.addProperty("content",content);p.add("allowed_mentions",noMentions());
+        JsonObject p=new JsonObject();p.addProperty("content",cap(content,2000));p.add("allowed_mentions",noMentions());
         return request("PATCH","/webhooks/"+i.applicationId()+"/"+i.token()+"/messages/@original",p.toString()).thenApply(r->r!=null&&r.statusCode()<300);
     }
     @Override public CompletableFuture<String> sendMessage(String channel,String json,String messageId) {
         JsonObject data=JsonParser.parseString(json).getAsJsonObject();data.add("allowed_mentions",noMentions());
+        if(data.has("content"))data.addProperty("content",cap(data.get("content").getAsString(),2000));
         return request(messageId==null?"POST":"PATCH","/channels/"+channel+"/messages"+(messageId==null?"":"/"+messageId),data.toString()).thenApply(r->{if(r==null||r.statusCode()>=300)return null;return JsonParser.parseString(r.body()).getAsJsonObject().get("id").getAsString();});
     }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
@@ -392,28 +393,27 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         return result.whenComplete((v,e)->admission.release());
     }
 
-    private JsonObject serializeEmbed(DiscordEmbed embed) {
-        JsonObject json = new JsonObject();
-        if (embed.title() != null) json.addProperty("title", embed.title());
-        if (embed.description() != null) json.addProperty("description", embed.description());
-        if (embed.color() != null) json.addProperty("color", embed.color());
-        if (embed.timestamp() != null) json.addProperty("timestamp", embed.timestamp().toString());
-        if (embed.footer() != null) {
-            JsonObject footer = new JsonObject();
-            footer.addProperty("text", embed.footer());
-            json.add("footer", footer);
+    static String cap(String text,int limit) {
+        if(text==null)return "";int end=Math.min(text.length(),Math.max(0,limit));
+        if(end>0&&end<text.length()&&Character.isHighSurrogate(text.charAt(end-1)))end--;
+        return text.substring(0,end);
+    }
+    JsonObject serializeEmbed(DiscordEmbed embed) {
+        JsonObject json=new JsonObject();int left=6000;
+        if(embed.title()!=null){String title=cap(embed.title(),256);json.addProperty("title",title);left-=title.length();}
+        if(embed.description()!=null){String desc=cap(embed.description(),Math.min(left,4096));json.addProperty("description",desc);left-=desc.length();}
+        if(embed.color()!=null)json.addProperty("color",embed.color());
+        if(embed.timestamp()!=null)json.addProperty("timestamp",embed.timestamp().toString());
+        JsonArray fields=new JsonArray();
+        if(embed.fields()!=null)for(var field:embed.fields()) {
+            if(fields.size()>=25||left<2)break;
+            String name=cap(field.name()==null||field.name().isBlank()?"—":field.name(),Math.min(256,left-1));left-=name.length();
+            String value=cap(field.value()==null||field.value().isBlank()?"—":field.value(),Math.min(1024,left));left-=value.length();
+            if(name.isEmpty()||value.isEmpty())break;
+            JsonObject f=new JsonObject();f.addProperty("name",name);f.addProperty("value",value);f.addProperty("inline",field.inline());fields.add(f);
         }
-        if (embed.fields() != null && !embed.fields().isEmpty()) {
-            JsonArray fields = new JsonArray();
-            for (DiscordEmbed.Field f : embed.fields()) {
-                JsonObject obj = new JsonObject();
-                obj.addProperty("name", f.name());
-                obj.addProperty("value", f.value());
-                obj.addProperty("inline", f.inline());
-                fields.add(obj);
-            }
-            json.add("fields", fields);
-        }
+        if(!fields.isEmpty())json.add("fields",fields);
+        if(embed.footer()!=null&&left>0){JsonObject footer=new JsonObject();footer.addProperty("text",cap(embed.footer(),Math.min(2048,left)));json.add("footer",footer);}
         return json;
     }
 
@@ -485,6 +485,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
     private synchronized void loadStoredLinks() {
         File file = new File(plugin.getDataFolder(), "discord-data.yml");
+        playerToDiscord.clear();discordToPlayer.clear();
         if (!file.exists()) return;
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         ConfigurationSection sec = yaml.getConfigurationSection("links");
