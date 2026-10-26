@@ -305,3 +305,4 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         registered.add(name);
     }
 }
+

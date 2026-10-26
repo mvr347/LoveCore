@@ -1,6 +1,7 @@
 package dev.lovelace.lovecore.discord;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -32,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 
-public final class DiscordServiceImpl implements DiscordService {
+public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
     private static final String API_BASE = "https://discord.com/api/v10";
     private static final String CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -57,11 +58,15 @@ public final class DiscordServiceImpl implements DiscordService {
     private final Map<String, String> channelLastMessageId = new ConcurrentHashMap<>();
     private final List<TicketMessageListener> messageListeners = new CopyOnWriteArrayList<>();
     private BukkitTask pollingTask;
+    private DiscordGateway gateway;
+    private final java.util.concurrent.Semaphore requestLimit = new java.util.concurrent.Semaphore(8);
+    private final java.util.concurrent.Semaphore admission = new java.util.concurrent.Semaphore(264);
+    private final List<dev.lovelace.lovecore.api.discord.TicketMessageListenerV2> listenersV2 = new CopyOnWriteArrayList<>();
+    private final List<dev.lovelace.lovecore.api.discord.DiscordInteractionListener> interactions = new CopyOnWriteArrayList<>();
 
     // Blocking HTTP calls (including the 3 s sleep in closeTicketChannel) run on virtual threads instead of
     // ForkJoinPool.commonPool(), which is shared by every plugin on the JVM and would be starved by them.
-    private final java.util.concurrent.ExecutorService httpExecutor =
-            java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+    private final DiscordIoExecutor httpExecutor = new DiscordIoExecutor("love-discord-http-",8,256);
 
     private record LinkCode(UUID playerUuid, long expiresAt) {}
 
@@ -72,24 +77,9 @@ public final class DiscordServiceImpl implements DiscordService {
                 .build();
     }
 
-    /** Stops polling and the HTTP executor; called from onDisable (load() may run again on reload, this must not). */
-    public void shutdown() {
-        if (pollingTask != null) {
-            pollingTask.cancel();
-            pollingTask = null;
-        }
-        httpExecutor.shutdown();
-        try {
-            if (!httpExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                httpExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            httpExecutor.shutdownNow();
-        }
-    }
-
     public void load() {
+        if(gateway!=null){gateway.close();gateway=null;}
+        if(pollingTask!=null){pollingTask.cancel();pollingTask=null;}
         ConfigurationSection sec = plugin.getConfig().getConfigurationSection("discord");
         this.enabled = sec != null && sec.getBoolean("enabled", false);
         this.botToken = sec != null ? sec.getString("bot-token", "").trim() : "";
@@ -100,10 +90,21 @@ public final class DiscordServiceImpl implements DiscordService {
         this.appealsLogChannelId = sec != null ? sec.getString("appeals-log-channel-id", "").trim() : "";
 
         loadStoredLinks();
+        File tickets=new File(plugin.getDataFolder(),"discord-tickets.yml");
+        if(tickets.exists()) {
+            var saved=YamlConfiguration.loadConfiguration(tickets);
+            var ticketSection=saved.getConfigurationSection("tickets");
+            if(ticketSection!=null)for(String id:ticketSection.getKeys(false))activeTickets.put(id,ticketSection.getString(id));
+            var section=saved.getConfigurationSection("cursors");
+            if(section!=null)for(String channel:section.getKeys(false))channelLastMessageId.put(channel,section.getString(channel));
+        }
 
         if (enabled && !botToken.isBlank()) {
             plugin.getLogger().info("✓ LoveCore DiscordService активирован (Guild ID: " + guildId + ")");
             startMessagePolling();
+            if(gateway!=null)gateway.close();
+            gateway=new DiscordGateway(httpClient,botToken,this::onInteraction);
+            gateway.start();
         } else {
             plugin.getLogger().info("ℹ LoveCore DiscordService ожидает настройки токена в config.yml (discord.bot-token)");
         }
@@ -140,7 +141,7 @@ public final class DiscordServiceImpl implements DiscordService {
     }
 
     @Override
-    public boolean completeLink(String discordId, String code) {
+    public synchronized boolean completeLink(String discordId, String code) {
         if (code == null || discordId == null || discordId.isBlank()) return false;
         String cleanCode = code.trim().toUpperCase(Locale.ROOT);
         LinkCode entry = linkCodes.remove(cleanCode);
@@ -149,15 +150,13 @@ public final class DiscordServiceImpl implements DiscordService {
         }
 
         UUID uuid = entry.playerUuid();
-        playerToDiscord.put(uuid, discordId);
-        discordToPlayer.put(discordId, uuid);
-        saveStoredLinks();
+        setLink(uuid,discordId);
         plugin.getLogger().info("Привязан аккаунт: " + uuid + " <-> Discord " + discordId);
         return true;
     }
 
     @Override
-    public void unlink(UUID playerUuid) {
+    public synchronized void unlink(UUID playerUuid) {
         String discordId = playerToDiscord.remove(playerUuid);
         if (discordId != null) {
             discordToPlayer.remove(discordId);
@@ -166,12 +165,14 @@ public final class DiscordServiceImpl implements DiscordService {
     }
 
     @Override
-    public void setLink(UUID playerUuid, String discordId) {
+    public synchronized void setLink(UUID playerUuid, String discordId) {
         if (playerUuid == null) return;
         if (discordId == null || discordId.isBlank()) {
             unlink(playerUuid);
             return;
         }
+        String old=playerToDiscord.remove(playerUuid);if(old!=null)discordToPlayer.remove(old);
+        UUID previous=discordToPlayer.remove(discordId);if(previous!=null)playerToDiscord.remove(previous);
         playerToDiscord.put(playerUuid, discordId);
         discordToPlayer.put(discordId, playerUuid);
         saveStoredLinks();
@@ -198,6 +199,7 @@ public final class DiscordServiceImpl implements DiscordService {
         }
 
         JsonObject body = new JsonObject();
+        body.add("allowed_mentions", noMentions());
         if (message != null && !message.isBlank()) {
             body.addProperty("content", message);
         }
@@ -211,12 +213,50 @@ public final class DiscordServiceImpl implements DiscordService {
                 .thenApply(response -> response != null && response.statusCode() >= 200 && response.statusCode() < 300);
     }
 
+    private JsonObject noMentions(){JsonObject a=new JsonObject();a.add("parse",new JsonArray());return a;}
+    @Override public void registerTicketMessageListenerV2(dev.lovelace.lovecore.api.discord.TicketMessageListenerV2 listener){listenersV2.add(listener);}
+    @Override public void unregisterTicketMessageListenerV2(dev.lovelace.lovecore.api.discord.TicketMessageListenerV2 listener){listenersV2.remove(listener);}
+    @Override public void registerInteractionListener(dev.lovelace.lovecore.api.discord.DiscordInteractionListener listener){interactions.add(listener);}
+    @Override public void unregisterInteractionListener(dev.lovelace.lovecore.api.discord.DiscordInteractionListener listener){interactions.remove(listener);}
+    private void onInteraction(dev.lovelace.lovecore.api.discord.DiscordInteraction interaction) {
+        for(var listener:interactions)try{if(listener.onInteraction(interaction))return;}catch(RuntimeException e){plugin.getLogger().warning("Ошибка обработчика Discord");}
+        respond(interaction,"{\"type\":4,\"data\":{\"content\":\"Действие временно недоступно\",\"flags\":64}}");
+    }
+    @Override public CompletableFuture<Boolean> registerCommand(String name,String description,Map<String,String> options) {
+        JsonObject body=new JsonObject();body.addProperty("name",name);body.addProperty("description",description);
+        JsonArray opts=new JsonArray();options.forEach((key,value)->{JsonObject o=new JsonObject();o.addProperty("type",3);o.addProperty("name",key);o.addProperty("description",value);o.addProperty("required",false);opts.add(o);});body.add("options",opts);
+        return request("GET","/users/@me",null).thenCompose(resp->{
+            if(resp==null||resp.statusCode()!=200)return CompletableFuture.completedFuture(false);
+            String app=JsonParser.parseString(resp.body()).getAsJsonObject().get("id").getAsString();
+            return sendPostRequest("/applications/"+app+"/guilds/"+guildId+"/commands",body.toString()).thenApply(r->r!=null&&r.statusCode()<300);
+        });
+    }
+    @Override public CompletableFuture<Boolean> respond(dev.lovelace.lovecore.api.discord.DiscordInteraction i,String json) {
+        return sendPostRequest("/interactions/"+i.id()+"/"+i.token()+"/callback",json).thenApply(r->r!=null&&r.statusCode()<300);
+    }
+    @Override public CompletableFuture<Boolean> editResponse(dev.lovelace.lovecore.api.discord.DiscordInteraction i,String content) {
+        JsonObject p=new JsonObject();p.addProperty("content",content);p.add("allowed_mentions",noMentions());
+        return request("PATCH","/webhooks/"+i.applicationId()+"/"+i.token()+"/messages/@original",p.toString()).thenApply(r->r!=null&&r.statusCode()<300);
+    }
+    @Override public CompletableFuture<String> sendMessage(String channel,String json,String messageId) {
+        JsonObject data=JsonParser.parseString(json).getAsJsonObject();data.add("allowed_mentions",noMentions());
+        return request(messageId==null?"POST":"PATCH","/channels/"+channel+"/messages"+(messageId==null?"":"/"+messageId),data.toString()).thenApply(r->{if(r==null||r.statusCode()>=300)return null;return JsonParser.parseString(r.body()).getAsJsonObject().get("id").getAsString();});
+    }
+    @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
+    @Override public void restoreTicket(String id,String channel){activeTickets.put(id,channel);}
+
     @Override
     public CompletableFuture<String> createTicketChannel(TicketType type, String ticketId, String playerName, String initialReason) {
-        if (!isEnabled() || guildId.isBlank()) {
-            return CompletableFuture.completedFuture(null);
-        }
+        return createTicketChannel(type,ticketId,playerName,initialReason,null);
+    }
 
+    @Override public CompletableFuture<String> createTicketChannel(TicketType type,String ticketId,String playerName,String initialReason,String ownerDiscordId) {
+        if (!isEnabled() || guildId.isBlank()) return CompletableFuture.completedFuture(null);
+        String existing=activeTickets.get(ticketId);if(existing!=null)return CompletableFuture.completedFuture(existing);
+        JsonArray permissions = new JsonArray();
+        JsonObject everyone = new JsonObject();everyone.addProperty("id",guildId);everyone.addProperty("type",0);everyone.addProperty("deny","1024");permissions.add(everyone);
+        for(String role:plugin.getConfig().getStringList("discord.staff-role-ids"))permissions.add(overwrite(role,0,"101376","0"));
+        if(ownerDiscordId!=null&&!ownerDiscordId.isBlank())permissions.add(overwrite(ownerDiscordId,1,"101376","0"));
         String prefix = type == TicketType.BAN_APPEAL ? "бан-" : (type == TicketType.SUPPORT ? "саппорт-" : "тикет-");
         String sanitizedName = playerName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "");
         String channelName = "ticket-" + prefix + sanitizedName;
@@ -224,6 +264,7 @@ public final class DiscordServiceImpl implements DiscordService {
         JsonObject payload = new JsonObject();
         payload.addProperty("name", channelName);
         payload.addProperty("type", 0); // Guild Text Channel
+        payload.add("permission_overwrites",permissions);
         payload.addProperty("topic", "Тикет: " + ticketId + " | Игрок: " + playerName + " | Причина: " + initialReason);
 
         String category = type == TicketType.BAN_APPEAL ? appealsCategoryId : supportCategoryId;
@@ -231,7 +272,12 @@ public final class DiscordServiceImpl implements DiscordService {
             payload.addProperty("parent_id", category);
         }
 
-        return sendPostRequest("/guilds/" + guildId + "/channels", payload.toString()).thenApply(resp -> {
+        return request("GET","/users/@me",null).thenCompose(identity->{
+            if(identity==null||identity.statusCode()!=200)return CompletableFuture.<HttpResponse<String>>completedFuture(null);
+            String bot=JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
+            permissions.add(overwrite(bot,1,"117776","0"));
+            return sendPostRequest("/guilds/"+guildId+"/channels",payload.toString());
+        }).thenApply(resp -> {
             if (resp == null || resp.statusCode() < 200 || resp.statusCode() >= 300) {
                 plugin.getLogger().warning("Не удалось создать тикет-канал Discord: " + (resp != null ? resp.body() : "null"));
                 return null;
@@ -240,6 +286,7 @@ public final class DiscordServiceImpl implements DiscordService {
                 JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
                 String channelId = json.get("id").getAsString();
                 activeTickets.put(ticketId, channelId);
+                saveCursors();
 
                 // Отправляем вступительное сообщение
                 DiscordEmbed intro = new DiscordEmbed(
@@ -273,27 +320,20 @@ public final class DiscordServiceImpl implements DiscordService {
         farewell.addProperty("content", "🔒 **Тикет закрыт.** Причина: " + (reason != null ? reason : "Вопрос решён."));
         sendPostRequest("/channels/" + channelId + "/messages", farewell.toString());
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                Thread.sleep(3000); // 3 секунды чтобы увидеть закрытие
-                HttpRequest req = HttpRequest.newBuilder()
-                        .uri(URI.create(API_BASE + "/channels/" + channelId))
-                        .header("Authorization", "Bot " + botToken)
-                        .DELETE()
-                        .build();
-                HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-                return resp.statusCode() >= 200 && resp.statusCode() < 300;
-            } catch (Exception e) {
-                return false;
-            } finally {
-                // The ticket is closed as far as the plugin is concerned whether or not Discord answered the
-                // DELETE (timeout, 5xx, rate limit). Removing it only on success left a closed ticket in
-                // activeTickets that was polled every 4 s for the rest of the uptime.
-                activeTickets.values().remove(channelId);
-                channelLastMessageId.remove(channelId);
-            }
-        }, httpExecutor);
+        return request("GET","/channels/"+channelId,null).thenCompose(existing->{
+            if(existing==null||existing.statusCode()!=200)return CompletableFuture.completedFuture(false);
+            JsonObject channel=JsonParser.parseString(existing.body()).getAsJsonObject();
+            JsonObject patch=new JsonObject();patch.addProperty("name","закрыт-"+channel.get("name").getAsString().replaceFirst("^закрыт-", ""));
+            JsonArray overwrites=channel.getAsJsonArray("permission_overwrites");
+            for(JsonElement el:overwrites){JsonObject o=el.getAsJsonObject();long allow=Long.parseLong(o.get("allow").getAsString());long deny=Long.parseLong(o.get("deny").getAsString());o.addProperty("allow",Long.toString(allow&~2048L));o.addProperty("deny",Long.toString(deny|2048L));}
+            patch.add("permission_overwrites",overwrites);
+            return request("PATCH","/channels/"+channelId,patch.toString()).thenApply(resp->{
+                boolean ok=resp!=null&&resp.statusCode()<300;
+                if(ok){activeTickets.values().remove(channelId);channelLastMessageId.remove(channelId);saveCursors();}return ok;
+            });
+        });
     }
+    private JsonObject overwrite(String id,int type,String allow,String deny){JsonObject o=new JsonObject();o.addProperty("id",id);o.addProperty("type",type);o.addProperty("allow",allow);o.addProperty("deny",deny);return o;}
 
     @Override
     public void registerTicketMessageListener(TicketMessageListener listener) {
@@ -325,22 +365,31 @@ public final class DiscordServiceImpl implements DiscordService {
         });
     }
 
-    private CompletableFuture<HttpResponse<String>> sendPostRequest(String endpoint, String jsonBody) {
-        return CompletableFuture.supplyAsync(() -> {
+    private CompletableFuture<HttpResponse<String>> sendPostRequest(String endpoint,String jsonBody) {return request("POST",endpoint,jsonBody);}
+    private CompletableFuture<HttpResponse<String>> request(String method,String endpoint,String body) {
+        if(!isEnabled())return CompletableFuture.completedFuture(null);
+        if(!admission.tryAcquire())return CompletableFuture.failedFuture(new java.util.concurrent.RejectedExecutionException("Discord queue full"));
+        CompletableFuture<HttpResponse<String>> result;
+        try { result=httpExecutor.supply(()->{
+            boolean acquired=false;
             try {
-                HttpRequest req = HttpRequest.newBuilder()
-                        .uri(URI.create(API_BASE + endpoint))
-                        .header("Authorization", "Bot " + botToken)
-                        .header("Content-Type", "application/json")
-                        .header("User-Agent", "DiscordBot (LoveCore, 1.0.0)")
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                        .build();
-                return httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            } catch (Exception e) {
-                plugin.getLogger().warning("Ошибка запроса к Discord API (" + endpoint + "): " + e.getMessage());
+                requestLimit.acquire();acquired=true;
+                for(int attempt=0;attempt<4;attempt++) {
+                    var b=HttpRequest.newBuilder().uri(URI.create(API_BASE+endpoint)).timeout(Duration.ofSeconds(10))
+                        .header("Authorization","Bot "+botToken).header("Content-Type","application/json")
+                        .method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
+                    var response=httpClient.send(b.build(),HttpResponse.BodyHandlers.ofString());
+                    if(response.statusCode()!=429)return response;
+                    double delay=JsonParser.parseString(response.body()).getAsJsonObject().get("retry_after").getAsDouble();
+                    Thread.sleep(Math.min(30000,Math.max(100,(long)(delay*1000))));
+                }
                 return null;
-            }
-        }, httpExecutor);
+            } catch(InterruptedException e){Thread.currentThread().interrupt();return null;}
+            catch(Exception e){plugin.getLogger().warning("Не удалось выполнить запрос Discord");return null;}
+            finally{if(acquired)requestLimit.release();}
+        }); }
+        catch(RuntimeException e){admission.release();return CompletableFuture.failedFuture(e);}
+        return result.whenComplete((v,e)->admission.release());
     }
 
     private JsonObject serializeEmbed(DiscordEmbed embed) {
@@ -383,16 +432,23 @@ public final class DiscordServiceImpl implements DiscordService {
                 String channelId = entry.getValue();
                 pollChannelMessages(ticketId, channelId);
             }
+            saveCursors();
         }, 60L, 80L); // раз в 4 секунды
+    }
+
+    private synchronized void saveCursors() {
+        var yaml=new YamlConfiguration();activeTickets.forEach((key,value)->yaml.set("tickets."+key,value));channelLastMessageId.forEach((key,value)->yaml.set("cursors."+key,value));
+        try{yaml.save(new File(plugin.getDataFolder(),"discord-tickets.yml"));}catch(IOException e){plugin.getLogger().warning("Не сохранены позиции сообщений Discord");}
     }
 
     private void pollChannelMessages(String ticketId, String channelId) {
         try {
             String after = channelLastMessageId.get(channelId);
-            String url = API_BASE + "/channels/" + channelId + "/messages?limit=10" + (after != null ? "&after=" + after : "");
+            String url = API_BASE + "/channels/" + channelId + "/messages?limit=100" + (after != null ? "&after=" + after : "");
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Authorization", "Bot " + botToken)
+                    .timeout(Duration.ofSeconds(10))
                     .GET()
                     .build();
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
@@ -401,25 +457,30 @@ public final class DiscordServiceImpl implements DiscordService {
                 for (int i = array.size() - 1; i >= 0; i--) {
                     JsonObject msg = array.get(i).getAsJsonObject();
                     String msgId = msg.get("id").getAsString();
-                    channelLastMessageId.put(channelId, msgId);
+
 
                     JsonObject author = msg.getAsJsonObject("author");
                     boolean isBot = author.has("bot") && author.get("bot").getAsBoolean();
-                    if (isBot) continue;
+                    if (isBot) { channelLastMessageId.put(channelId,msgId); continue; }
 
                     String authorName = author.get("username").getAsString();
                     String content = msg.has("content") ? msg.get("content").getAsString() : "";
 
+                    var attachments=new ArrayList<dev.lovelace.lovecore.api.discord.TicketMessage.Attachment>();
+                    if(msg.has("attachments"))for(JsonElement el:msg.getAsJsonArray("attachments")){JsonObject item=el.getAsJsonObject();attachments.add(new dev.lovelace.lovecore.api.discord.TicketMessage.Attachment(item.get("filename").getAsString(),item.get("url").getAsString()));}
+                    var incoming=new dev.lovelace.lovecore.api.discord.TicketMessage(ticketId,channelId,msgId,author.get("id").getAsString(),authorName,content,attachments);
+                    for(var listener:listenersV2)listener.onTicketMessage(incoming);
                     for (TicketMessageListener listener : messageListeners) {
                         try {
-                            listener.onTicketMessage(ticketId, authorName, true, content);
+                            listener.onTicketMessage(ticketId, authorName, false, content);
                         } catch (Throwable t) {
                             plugin.getLogger().warning("Ошибка listener тикета: " + t.getMessage());
                         }
                     }
+                    channelLastMessageId.put(channelId,msgId);
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Exception e) { plugin.getLogger().fine("Повтор загрузки сообщений Discord"); }
     }
 
     private synchronized void loadStoredLinks() {
@@ -439,6 +500,16 @@ public final class DiscordServiceImpl implements DiscordService {
                 } catch (IllegalArgumentException ignored) {}
             }
         }
+    }
+
+    public void shutdown(){close();}
+
+    @Override public void close() {
+        enabled=false;
+        if(gateway!=null)gateway.close();
+        if(pollingTask!=null)pollingTask.cancel();
+        messageListeners.clear();listenersV2.clear();interactions.clear();
+        httpExecutor.stop(Duration.ofSeconds(2));httpClient.shutdownNow();
     }
 
     private synchronized void saveStoredLinks() {

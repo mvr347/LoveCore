@@ -343,6 +343,8 @@ tax:
 
 # Интеграция с Discord: единый бот для тикетов, апелляций, жалоб и привязки аккаунтов.
 discord:
+  # Роли персонала с доступом к приватным тикетам.
+  staff-role-ids: []
   enabled: false # Включите (true) после ввода токена и ID гильдии
   bot-token: ""
   guild-id: ""
@@ -350,3 +352,4 @@ discord:
   support-category-id: ""
   reports-channel-id: ""
   appeals-log-channel-id: ""
+
