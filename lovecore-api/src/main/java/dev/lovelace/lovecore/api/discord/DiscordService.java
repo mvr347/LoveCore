@@ -53,4 +53,20 @@ public interface DiscordService {
      */
     default void unregisterTicketMessageListener(TicketMessageListener listener) {
     }
+    default void registerTicketMessageListenerV2(TicketMessageListenerV2 listener) {}
+    default void unregisterTicketMessageListenerV2(TicketMessageListenerV2 listener) {}
+    default void registerInteractionListener(DiscordInteractionListener listener) {}
+    default void unregisterInteractionListener(DiscordInteractionListener listener) {}
+    default CompletableFuture<Boolean> registerCommand(String name,String description,java.util.Map<String,String> options) { return CompletableFuture.completedFuture(false); }
+    /** Callback JSON uses Discord's interaction response schema; tokens must never be logged. */
+    default CompletableFuture<Boolean> respond(DiscordInteraction interaction,String responseJson) { return CompletableFuture.completedFuture(false); }
+    default CompletableFuture<Boolean> editResponse(DiscordInteraction interaction,String content) { return CompletableFuture.completedFuture(false); }
+    default CompletableFuture<String> sendMessage(String channelId,String payloadJson,String messageId) { return CompletableFuture.completedFuture(null); }
+    default CompletableFuture<String> directMessage(String userId,String payloadJson) { return CompletableFuture.completedFuture(null); }
+    /** ownerDiscordId must be confirmed by the caller; null creates a staff-only channel. */
+    default CompletableFuture<String> createTicketChannel(TicketType type,String ticketId,String playerName,String reason,String ownerDiscordId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Private ticket ownership requires Discord API v2"));
+    }
+    default void restoreTicket(String ticketId,String channelId) {}
 }
+
