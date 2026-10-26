@@ -54,6 +54,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     private final Map<UUID, String> playerToDiscord = new ConcurrentHashMap<>();
     private final Map<String, UUID> discordToPlayer = new ConcurrentHashMap<>();
     private final Map<String, LinkCode> linkCodes = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<String>> creatingTickets = new ConcurrentHashMap<>();
     private final Map<String, String> activeTickets = new ConcurrentHashMap<>(); // ticketId -> channelId
     private final Map<String, String> channelLastMessageId = new ConcurrentHashMap<>();
     private final List<TicketMessageListener> messageListeners = new CopyOnWriteArrayList<>();
@@ -94,7 +95,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         if(tickets.exists()) {
             var saved=YamlConfiguration.loadConfiguration(tickets);
             var ticketSection=saved.getConfigurationSection("tickets");
-            if(ticketSection!=null)for(String id:ticketSection.getKeys(false))activeTickets.put(id,ticketSection.getString(id));
+            if(ticketSection!=null)for(String id:ticketSection.getKeys(false))if(id.contains(":"))activeTickets.put(id,ticketSection.getString(id));
             var section=saved.getConfigurationSection("cursors");
             if(section!=null)for(String channel:section.getKeys(false))channelLastMessageId.put(channel,section.getString(channel));
         }
@@ -244,7 +245,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         return request(messageId==null?"POST":"PATCH","/channels/"+channel+"/messages"+(messageId==null?"":"/"+messageId),data.toString()).thenApply(r->{if(r==null||r.statusCode()>=300)return null;return JsonParser.parseString(r.body()).getAsJsonObject().get("id").getAsString();});
     }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
-    @Override public void restoreTicket(String id,String channel){activeTickets.put(id,channel);}
+    static String ticketKey(TicketType type,String id){return type.name()+":"+id;}
+    @Override public void restoreTicket(String id,String channel){activeTickets.put(id.contains(":")?id:ticketKey(TicketType.BAN_APPEAL,id),channel);}
 
     @Override
     public CompletableFuture<String> createTicketChannel(TicketType type, String ticketId, String playerName, String initialReason) {
@@ -252,8 +254,18 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     }
 
     @Override public CompletableFuture<String> createTicketChannel(TicketType type,String ticketId,String playerName,String initialReason,String ownerDiscordId) {
+        String key=ticketKey(type,ticketId);
+        CompletableFuture<String> result=new CompletableFuture<>();
+        var previous=creatingTickets.putIfAbsent(key,result);if(previous!=null)return previous;
+        try{createPrivateTicket(type,ticketId,playerName,initialReason,ownerDiscordId).whenComplete((channel,error)->{
+            if(error!=null)result.completeExceptionally(error);else result.complete(channel);
+            creatingTickets.remove(key,result);
+        });}catch(RuntimeException e){creatingTickets.remove(key,result);result.completeExceptionally(e);}
+        return result;
+    }
+    private CompletableFuture<String> createPrivateTicket(TicketType type,String ticketId,String playerName,String initialReason,String ownerDiscordId) {
         if (!isEnabled() || guildId.isBlank()) return CompletableFuture.completedFuture(null);
-        String existing=activeTickets.get(ticketId);if(existing!=null)return CompletableFuture.completedFuture(existing);
+        String existing=activeTickets.get(ticketKey(type,ticketId));if(existing!=null)return CompletableFuture.completedFuture(existing);
         JsonArray permissions = new JsonArray();
         JsonObject everyone = new JsonObject();everyone.addProperty("id",guildId);everyone.addProperty("type",0);everyone.addProperty("deny","1024");permissions.add(everyone);
         for(String role:plugin.getConfig().getStringList("discord.staff-role-ids"))permissions.add(overwrite(role,0,"101376","0"));
@@ -266,7 +278,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         payload.addProperty("name", channelName);
         payload.addProperty("type", 0); // Guild Text Channel
         payload.add("permission_overwrites",permissions);
-        payload.addProperty("topic", "Тикет: " + ticketId + " | Игрок: " + playerName + " | Причина: " + initialReason);
+        payload.addProperty("topic", cap("Тикет: " + ticketId + " | Игрок: " + playerName + " | Причина: " + initialReason,1024));
 
         String category = type == TicketType.BAN_APPEAL ? appealsCategoryId : supportCategoryId;
         if (category != null && !category.isBlank()) {
@@ -286,7 +298,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             try {
                 JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
                 String channelId = json.get("id").getAsString();
-                activeTickets.put(ticketId, channelId);
+                activeTickets.put(ticketKey(type,ticketId), channelId);
                 saveCursors();
 
                 // Отправляем вступительное сообщение
@@ -430,7 +442,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             for (Map.Entry<String, String> entry : activeTickets.entrySet()) {
                 String ticketId = entry.getKey();
                 String channelId = entry.getValue();
-                pollChannelMessages(ticketId, channelId);
+                String externalId=ticketId.contains(":")?ticketId.substring(ticketId.indexOf(':')+1):ticketId;
+                pollChannelMessages(externalId, channelId);
             }
             saveCursors();
         }, 60L, 80L); // раз в 4 секунды
@@ -510,6 +523,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         if(gateway!=null)gateway.close();
         if(pollingTask!=null)pollingTask.cancel();
         messageListeners.clear();listenersV2.clear();interactions.clear();
+        creatingTickets.values().forEach(f->f.cancel(true));creatingTickets.clear();
         httpExecutor.stop(Duration.ofSeconds(2));httpClient.shutdownNow();
     }
 
