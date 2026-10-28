@@ -261,6 +261,13 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         if(data.has("content"))data.addProperty("content",cap(data.get("content").getAsString(),2000));
         return request(messageId==null?"POST":"PATCH","/channels/"+channel+"/messages"+(messageId==null?"":"/"+messageId),data.toString()).thenApply(r->{if(r==null||r.statusCode()>=300)return null;return JsonParser.parseString(r.body()).getAsJsonObject().get("id").getAsString();});
     }
+    @Override public CompletableFuture<String> sendImage(String channel,String content,String filename,String mime,byte[] image) {
+        if(channel==null||!channel.matches("[0-9]{5,25}"))return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid channel"));
+        var upload=DiscordUpload.image(content,filename,mime,image);
+        return request("POST","/channels/"+channel+"/messages",upload.contentType(),HttpRequest.BodyPublishers.ofByteArray(upload.bytes())).thenApply(response->{
+            if(response==null||response.statusCode()<200||response.statusCode()>=300)return null;return JsonParser.parseString(response.body()).getAsJsonObject().get("id").getAsString();
+        });
+    }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
     static String ticketKey(TicketType type,String id){return type.name()+":"+id;}
     @Override public void restoreTicket(String id,String channel){activeTickets.put(id.contains(":")?id:ticketKey(TicketType.BAN_APPEAL,id),channel);}
@@ -330,7 +337,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
                 // Отправляем вступительное сообщение
                 DiscordEmbed intro = new DiscordEmbed(
-                        (request.preview()?"[ТЕСТ] ":"") + "⚔ Тикет " + (type == TicketType.BAN_APPEAL ? "апелляции бана" : "поддержки"),
+                        (request.preview()?"[ТЕСТ] ":"") + "⚔ Тикет " + (type == TicketType.BAN_APPEAL ? "апелляции бана" : type == TicketType.REPORT ? "жалобы" : "поддержки"),
                         "**Игрок:** `" + playerName + "`\n" +
                                 "**Тикет ID:** `" + ticketId + "`\n" +
                                 "**Описание:** " + initialReason + "\n\n" +
@@ -407,6 +414,9 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
     private CompletableFuture<HttpResponse<String>> sendPostRequest(String endpoint,String jsonBody) {return request("POST",endpoint,jsonBody);}
     private CompletableFuture<HttpResponse<String>> request(String method,String endpoint,String body) {
+        return request(method,endpoint,"application/json",body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
+    }
+    private CompletableFuture<HttpResponse<String>> request(String method,String endpoint,String contentType,HttpRequest.BodyPublisher body) {
         if(!isEnabled())return CompletableFuture.completedFuture(null);
         if(!admission.tryAcquire())return CompletableFuture.failedFuture(new java.util.concurrent.RejectedExecutionException("Discord queue full"));
         CompletableFuture<HttpResponse<String>> result;
@@ -416,8 +426,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                 requestLimit.acquire();acquired=true;
                 for(int attempt=0;attempt<4;attempt++) {
                     var b=HttpRequest.newBuilder().uri(URI.create(API_BASE+endpoint)).timeout(Duration.ofSeconds(10))
-                        .header("Authorization","Bot "+botToken).header("Content-Type","application/json")
-                        .method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
+                        .header("Authorization","Bot "+botToken).header("Content-Type",contentType)
+                        .method(method,body);
                     var response=httpClient.send(b.build(),HttpResponse.BodyHandlers.ofString());
                     if(response.statusCode()!=429)return response;
                     double delay=JsonParser.parseString(response.body()).getAsJsonObject().get("retry_after").getAsDouble();

@@ -71,6 +71,11 @@ public interface DiscordService {
     /** Typed namespaces prevent support ticket IDs colliding with appeal IDs. */
     default void restoreTicket(TicketType type,String ticketId,String channelId) {restoreTicket(type.name()+":"+ticketId,channelId);}
 
+    /** Sends a private case image. Implementations must bound the bytes and suppress mentions. */
+    default CompletableFuture<String> sendImage(String channelId,String content,String filename,String mime,byte[] image) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Image uploads require Discord API v3"));
+    }
+
     /** Unsupported providers fail closed; a preview must never create a production ticket. */
     default CompletableFuture<String> createTicketChannel(TicketRequest request) {
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Explicit ticket routing requires Discord API v3"));
