@@ -34,6 +34,36 @@ final class TicketAccess {
     return value;
   }
 
+  static boolean matchesManaged(
+      JsonObject channel,
+      String guild,
+      dev.lovelace.lovecore.api.discord.ManagedTicketRequest request) {
+    if (!channel.has("type")
+        || channel.get("type").getAsInt() != 0
+        || !channel.has("name")
+        || !request.channelName().equals(channel.get("name").getAsString())
+        || !channel.has("topic")
+        || channel.get("topic").isJsonNull()
+        || !channel
+            .get("topic")
+            .getAsString()
+            .startsWith("Тикет: " + request.routing().ticketId() + " |")) return false;
+    if (channel.has("guild_id") && !guild.equals(channel.get("guild_id").getAsString()))
+      return false;
+    if (!channel.has("permission_overwrites")) return false;
+    boolean privateChannel = false, owner = request.routing().ownerDiscordId() == null;
+    for (JsonElement item : channel.getAsJsonArray("permission_overwrites")) {
+      var row = item.getAsJsonObject();
+      if (row.get("type").getAsInt() == 0
+          && guild.equals(row.get("id").getAsString())
+          && (Long.parseLong(row.get("deny").getAsString()) & 1024L) != 0) privateChannel = true;
+      if (row.get("type").getAsInt() == 1
+          && row.get("id").getAsString().equals(request.routing().ownerDiscordId())
+          && (Long.parseLong(row.get("allow").getAsString()) & 1024L) != 0) owner = true;
+    }
+    return privateChannel && owner;
+  }
+
   static String transcriptText(JsonObject message) {
     var content =
         new StringBuilder(

@@ -64,4 +64,37 @@ class TicketAccessTest {
     assertEquals(
         "Текст\nРешение\nОбъяснение\nИсточник: Безопасность", TicketAccess.transcriptText(message));
   }
+
+  @Test
+  void recoveryMatchesExactPrivateCaseAndOwner() {
+    var request =
+        new dev.lovelace.lovecore.api.discord.ManagedTicketRequest(
+            new dev.lovelace.lovecore.api.discord.TicketRequest(
+                dev.lovelace.lovecore.api.discord.TicketType.REPORT,
+                "report:12",
+                "Player",
+                "Reason",
+                "40000",
+                null,
+                false),
+            List.of(),
+            List.of(),
+            "mine-ticket-12-r");
+    var channel =
+        com.google.gson.JsonParser.parseString(
+                "{\"id\":\"50000\",\"guild_id\":\"10000\",\"type\":0,\"name\":\"mine-ticket-12-r\",\"topic\":\"Тикет: report:12 | Игрок: Player\"}")
+            .getAsJsonObject();
+    channel.add(
+        "permission_overwrites",
+        TicketAccess.overwrites("10000", "20000", List.of(), List.of("40000")));
+    assertTrue(TicketAccess.matchesManaged(channel, "10000", request));
+    assertFalse(TicketAccess.matchesManaged(channel, "90000", request));
+    channel.addProperty("topic", "Тикет: report:13 | Игрок: Player");
+    assertFalse(TicketAccess.matchesManaged(channel, "10000", request));
+    channel.addProperty("topic", "Тикет: report:12 | Игрок: Player");
+    channel.add(
+        "permission_overwrites",
+        TicketAccess.overwrites("10000", "20000", List.of(), List.of("60000")));
+    assertFalse(TicketAccess.matchesManaged(channel, "10000", request));
+  }
 }

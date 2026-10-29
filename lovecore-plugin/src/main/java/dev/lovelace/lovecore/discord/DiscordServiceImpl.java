@@ -455,7 +455,12 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
           new java.util.concurrent.RejectedExecutionException("Too many ticket creations"));
     }
     try {
-      createPrivateTicket(route, managed)
+      recoverManagedTicket(managed)
+          .thenCompose(
+              found ->
+                  found == null
+                      ? createPrivateTicket(route, managed)
+                      : CompletableFuture.completedFuture(found))
           .whenComplete(
               (channel, error) -> {
                 if (error != null) result.completeExceptionally(error);
@@ -469,6 +474,39 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
       result.completeExceptionally(error);
     }
     return result;
+  }
+
+  @Override
+  public CompletableFuture<String> recoverManagedTicket(
+      dev.lovelace.lovecore.api.discord.ManagedTicketRequest managed) {
+    var route = managed.routing();
+    if (route.preview()
+        && (route.categoryId().equals(appealsCategoryId)
+            || route.categoryId().equals(supportCategoryId)))
+      return CompletableFuture.failedFuture(
+          new IllegalArgumentException("Тестовая категория совпадает с рабочей"));
+    String key = ticketKey(route.type(), route.ticketId());
+    String known = activeTickets.get(key);
+    if (known != null) return CompletableFuture.completedFuture(known);
+    return request("GET", "/guilds/" + guildId + "/channels", null)
+        .thenApply(
+            response -> {
+              confirmed(response, 200);
+              String found = null;
+              for (JsonElement item : JsonParser.parseString(response.body()).getAsJsonArray())
+                if (TicketAccess.matchesManaged(item.getAsJsonObject(), guildId, managed)) {
+                  if (found != null)
+                    throw new IllegalStateException(
+                        "Найдено несколько каналов обращения; требуется ручная сверка");
+                  found = item.getAsJsonObject().get("id").getAsString();
+                }
+              if (found != null) {
+                activeTickets.putIfAbsent(key, found);
+                saveCursors();
+                return activeTickets.get(key);
+              }
+              return null;
+            });
   }
 
   private void managedChannel(String channel) {

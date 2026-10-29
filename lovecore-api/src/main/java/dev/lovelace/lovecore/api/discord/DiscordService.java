@@ -148,5 +148,11 @@ public interface DiscordService {
     return CompletableFuture.failedFuture(
         new UnsupportedOperationException("Persistent messages unavailable"));
   }
+
+  /** Read-only reconciliation of a creation whose response was lost; never creates a channel. */
+  default CompletableFuture<String> recoverManagedTicket(ManagedTicketRequest request) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Managed recovery unavailable"));
+  }
 }
 
