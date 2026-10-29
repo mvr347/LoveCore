@@ -37,21 +37,25 @@ commands:
     usage: /lovecoreadmin [reload|economy|provider|cleardata]
     aliases: [lovecore]
     permission: lovecore.admin
+    permission-message: ""
   lovenotify:
     description: Переключить показ уведомлений в title/actionbar/chat.
     usage: /lovenotify [toggle <chat|actionbar|title>]
     aliases: [notify, уведомления]
     permission: lovecore.notify
+    permission-message: ""
   tax:
     description: Посмотреть свою ставку налога, или настроить её (админ).
     usage: /tax [info|set <politeness|terrible|min|max|aggressive-bonus|trade-softening> <значение>|reload]
     aliases: [налог]
     permission: lovecore.tax
+    permission-message: ""
   lovealias:
     description: Управление алиасами команд (любого плагина экосистемы, не только LoveCore).
     usage: /lovealias <add|remove|list|info|permission|tab|reload>
     aliases: [алиас, алиасы]
     permission: lovecore.alias.admin
+    permission-message: ""
 
 permissions:
   lovecore.admin:

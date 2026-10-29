@@ -347,23 +347,23 @@ public class LoveCoreAdminCommand implements CommandExecutor, TabCompleter {
     private void sendHelp(@NotNull CommandSender sender) {
         sendHeader(sender);
         sender.sendMessage(mm.deserialize(
-                "<gold>/lovecoreadmin</gold> <gray>- Показать, какие службы ядра подняты</gray>"));
+                "<aqua>/lovecoreadmin</aqua> <gray>- Показать, какие службы ядра подняты</gray>"));
         sender.sendMessage(mm.deserialize(
-                "<gold>/lovecoreadmin reload</gold> <gray>- Перезагрузить конфигурацию ядра</gray>"));
+                "<aqua>/lovecoreadmin reload</aqua> <gray>- Перезагрузить конфигурацию ядра</gray>"));
         sender.sendMessage(mm.deserialize(
-                "<gold>/lovecoreadmin economy <index|price|setprice|resetprice|dump-prices></gold> <gray>- Индекс цен, разбор цены, "
+                "<aqua>/lovecoreadmin economy <index|price|setprice|resetprice|dump-prices></aqua> <gray>- Индекс цен, разбор цены, "
                         + "точная цена предмета, выгрузка модели цен</gray>"));
         sender.sendMessage(mm.deserialize(
-                "<gold>/lovecoreadmin provider [love|other]</gold> <gray>- Переключить все плагины между LoveEssential "
+                "<aqua>/lovecoreadmin provider [love|other]</aqua> <gray>- Переключить все плагины между LoveEssential "
                         + "и Citizens/CMI/ReviveMe</gray>"));
         sender.sendMessage(mm.deserialize(
-                "<gold>/lovecoreadmin cleardata <игрок> confirm</gold> <gray>- Стереть прогресс игрока во всех "
+                "<aqua>/lovecoreadmin cleardata <игрок> confirm</aqua> <gray>- Стереть прогресс игрока во всех "
                         + "плагинах; LoveAuth и настройки игрока сохраняются (необратимо)</gray>"));
         sendFooter(sender);
     }
 
     private void sendHeader(@NotNull CommandSender sender) {
-        sender.sendMessage(mm.deserialize("<dark_gray>========== <gold>LoveCore Admin</gold> ==========</dark_gray>"));
+        sender.sendMessage(mm.deserialize("<dark_gray>========== <aqua>LoveCore Admin</aqua> ==========</dark_gray>"));
     }
 
     private void sendFooter(@NotNull CommandSender sender) {

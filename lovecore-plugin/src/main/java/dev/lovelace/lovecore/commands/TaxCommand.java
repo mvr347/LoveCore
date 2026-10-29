@@ -44,7 +44,7 @@ public class TaxCommand implements CommandExecutor, TabCompleter {
     @SuppressWarnings("NullableProblems")
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (args.length == 0 || args[0].equalsIgnoreCase("info")) {
-            return handleInfo(sender);
+            return handleInfo(sender, args);
         }
         if (args[0].equalsIgnoreCase("set")) {
             return handleSet(sender, args);
@@ -56,31 +56,41 @@ public class TaxCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    private boolean handleInfo(CommandSender sender) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Только для игроков.");
+    private boolean handleInfo(CommandSender sender, String[] args) {
+        // /tax info <player> is for admins and for the console, which has no "self" to show.
+        Player player;
+        if (args.length > 1 && sender.hasPermission("lovecore.tax.admin")) {
+            player = org.bukkit.Bukkit.getPlayerExact(args[1]);
+            if (player == null) {
+                sender.sendMessage(mm.deserialize("<red>Игрок не найден.</red>"));
+                return true;
+            }
+        } else if (sender instanceof Player self) {
+            player = self;
+        } else {
+            sender.sendMessage(mm.deserialize("<red>Команда доступна только игрокам. Из консоли: /tax info <игрок></red>"));
             return true;
         }
         TaxOracle oracle = LoveCore.service(TaxOracle.class).orElse(taxOracle);
         double rate = oracle.rate(player.getUniqueId()) * 100.0;
         double tradeRate = oracle.tradeRate(player.getUniqueId()) * 100.0;
-        player.sendMessage(mm.deserialize("<dark_gray>========== <gold>Налог</gold> ==========</dark_gray>"));
-        player.sendMessage(mm.deserialize(String.format(Locale.ROOT,
+        final Player subject = player;
+        sender.sendMessage(mm.deserialize("<dark_gray>========== <aqua>Налог</aqua> ==========</dark_gray>"));
+        sender.sendMessage(mm.deserialize(String.format(Locale.ROOT,
                 "<gray>Ставка на покупки/продажи NPC: <yellow>%.1f%%</yellow></gray>", rate)));
-        player.sendMessage(mm.deserialize(String.format(Locale.ROOT,
+        sender.sendMessage(mm.deserialize(String.format(Locale.ROOT,
                 "<gray>Ставка на прямые сделки с игроками: <yellow>%.1f%%</yellow></gray>", tradeRate)));
         LoveCore.service(BehaviorLevels.class).ifPresent(levels -> {
-            player.sendMessage(mm.deserialize(String.format(Locale.ROOT,
+            sender.sendMessage(mm.deserialize(String.format(Locale.ROOT,
                     "<dark_gray>Вежливость: ступень %d, стиль игры: ступень %d.</dark_gray>",
-                    levels.politenessLevel(player.getUniqueId()), levels.playstyleLevel(player.getUniqueId()))));
+                    levels.politenessLevel(subject.getUniqueId()), levels.playstyleLevel(subject.getUniqueId()))));
         });
-        player.sendMessage(mm.deserialize("<dark_gray>===============================</dark_gray>"));
+        sender.sendMessage(mm.deserialize("<dark_gray>=========================================</dark_gray>"));
         return true;
     }
 
     private boolean handleSet(CommandSender sender, String[] args) {
         if (!sender.hasPermission("lovecore.tax.admin")) {
-            sender.sendMessage(mm.deserialize("<red>Недостаточно прав.</red>"));
             return true;
         }
         if (args.length < 3) {
@@ -126,7 +136,6 @@ public class TaxCommand implements CommandExecutor, TabCompleter {
 
     private boolean handleReload(CommandSender sender) {
         if (!sender.hasPermission("lovecore.tax.admin")) {
-            sender.sendMessage(mm.deserialize("<red>Недостаточно прав.</red>"));
             return true;
         }
         plugin.reloadConfig();
