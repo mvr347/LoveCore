@@ -302,17 +302,35 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         return result;
     }
     private CompletableFuture<String> createPrivateTicket(dev.lovelace.lovecore.api.discord.TicketRequest request) {
+    return createPrivateTicket(request, null);
+  }
+
+  private CompletableFuture<String> createPrivateTicket(
+      dev.lovelace.lovecore.api.discord.TicketRequest request,
+      dev.lovelace.lovecore.api.discord.ManagedTicketRequest managed) {
+    if (managed != null && managed.supervisorRoleIds().contains(guildId))
+      return CompletableFuture.failedFuture(
+          new IllegalArgumentException("Нельзя открыть обращение для всех"));
         var type=request.type();var ticketId=request.ticketId();var playerName=request.playerName();
         var initialReason=request.reason();var ownerDiscordId=request.ownerDiscordId();
         if (!isEnabled() || guildId.isBlank()) return CompletableFuture.completedFuture(null);
         String existing=activeTickets.get(ticketKey(type,ticketId));if(existing!=null)return CompletableFuture.completedFuture(existing);
         JsonArray permissions = new JsonArray();
         JsonObject everyone = new JsonObject();everyone.addProperty("id",guildId);everyone.addProperty("type",0);everyone.addProperty("deny","1024");permissions.add(everyone);
-        for(String role:plugin.getConfig().getStringList("discord.staff-role-ids"))permissions.add(overwrite(role,0,"101376","0"));
+    for (String role :
+        managed == null
+            ? plugin.getConfig().getStringList("discord.staff-role-ids")
+            : managed.supervisorRoleIds()) permissions.add(overwrite(role, 0, "101376", "0"));
+    if (managed != null)
+      for (String member : managed.memberIds())
+        if (!member.equals(ownerDiscordId)) permissions.add(overwrite(member, 1, "101376", "0"));
         if(ownerDiscordId!=null&&!ownerDiscordId.isBlank())permissions.add(overwrite(ownerDiscordId,1,"101376","0"));
         String prefix = type == TicketType.BAN_APPEAL ? "бан-" : (type == TicketType.SUPPORT ? "саппорт-" : "тикет-");
         String sanitizedName = playerName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "");
-        String channelName = (request.preview()?"test-":"ticket-") + prefix + sanitizedName;
+    String channelName =
+        managed == null
+            ? (request.preview() ? "test-" : "ticket-") + prefix + sanitizedName
+            : managed.channelName();
 
         JsonObject payload = new JsonObject();
         payload.addProperty("name", channelName);
@@ -325,42 +343,73 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             payload.addProperty("parent_id", category);
         }
 
-        return request("GET","/users/@me",null).thenCompose(identity->{
-            if(identity==null||identity.statusCode()!=200)return CompletableFuture.<HttpResponse<String>>completedFuture(null);
-            String bot=JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
-            permissions.add(overwrite(bot,1,"117776","0"));
-            return sendPostRequest("/guilds/"+guildId+"/channels",payload.toString());
-        }).thenApply(resp -> {
-            if (resp == null || resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                plugin.getLogger().warning("Не удалось создать тикет-канал Discord: " + (resp != null ? resp.body() : "null"));
+    return request("GET", "/users/@me", null)
+        .thenCompose(
+            identity -> {
+              if (identity == null || identity.statusCode() != 200)
+                return CompletableFuture.<HttpResponse<String>>completedFuture(null);
+              String bot =
+                  JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
+              permissions.add(overwrite(bot, 1, "117776", "0"));
+              return sendPostRequest("/guilds/" + guildId + "/channels", payload.toString());
+            })
+        .thenApply(
+            resp -> {
+              if (resp == null || resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                plugin
+                    .getLogger()
+                    .warning(
+                        "Не удалось создать тикет-канал Discord: "
+                            + (resp != null ? resp.body() : "null"));
                 return null;
-            }
-            try {
+              }
+              try {
                 JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
                 String channelId = json.get("id").getAsString();
-                activeTickets.put(ticketKey(type,ticketId), channelId);
+                activeTickets.put(ticketKey(type, ticketId), channelId);
                 saveCursors();
 
                 // Отправляем вступительное сообщение
-                DiscordEmbed intro = new DiscordEmbed(
-                        (request.preview()?"[ТЕСТ] ":"") + "⚔ Тикет " + (type == TicketType.BAN_APPEAL ? "апелляции бана" : type == TicketType.REPORT ? "жалобы" : "поддержки"),
-                        "**Игрок:** `" + playerName + "`\n" +
-                                "**Тикет ID:** `" + ticketId + "`\n" +
-                                "**Описание:** " + initialReason + "\n\n" +
-                                "*Сообщения из этого канала синхронизируются с панелью LoveWebAdmin.*",
+                DiscordEmbed intro =
+                    new DiscordEmbed(
+                        (request.preview() ? "[ТЕСТ] " : "")
+                            + "⚔ Тикет "
+                            + (type == TicketType.BAN_APPEAL
+                                ? "апелляции бана"
+                                : type == TicketType.REPORT ? "жалобы" : "поддержки"),
+                        "**Игрок:** `"
+                            + playerName
+                            + "`\n"
+                            + "**Тикет ID:** `"
+                            + ticketId
+                            + "`\n"
+                            + "**Описание:** "
+                            + initialReason
+                            + "\n\n"
+                            + "*Переписка сохраняется в деле. Закрытие обращения не отменяет наказание.*",
                         0xE67E22,
                         List.of(),
-                        "LoveCore Ticket System",
-                        java.time.Instant.now()
-                );
-                sendChannelMessage(channelId, (request.preview()?"[ТЕСТ] ":"")+"Новое обращение от игрока `" + playerName + "`", intro);
+                        "Обращения",
+                        java.time.Instant.now());
+                sendChannelMessage(
+                    channelId,
+                    (request.preview() ? "[ТЕСТ] " : "")
+                        + "Новое обращение от игрока `"
+                        + playerName
+                        + "`",
+                    intro);
 
                 return channelId;
-            } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "Ошибка парсинга ответа создания канала: " + e.getMessage(), e);
+              } catch (Exception e) {
+                plugin
+                    .getLogger()
+                    .log(
+                        Level.WARNING,
+                        "Ошибка парсинга ответа создания канала: " + e.getMessage(),
+                        e);
                 return null;
-            }
-        });
+              }
+            });
     }
 
     @Override
@@ -386,6 +435,340 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             });
         });
     }
+
+  @Override
+  public CompletableFuture<String> createManagedTicket(
+      dev.lovelace.lovecore.api.discord.ManagedTicketRequest managed) {
+    var route = managed.routing();
+    if (route.preview()
+        && (route.categoryId().equals(appealsCategoryId)
+            || route.categoryId().equals(supportCategoryId)))
+      return CompletableFuture.failedFuture(
+          new IllegalArgumentException("Тестовая категория совпадает с рабочей"));
+    String key = ticketKey(route.type(), route.ticketId());
+    var result = new CompletableFuture<String>();
+    var previous = creatingTickets.putIfAbsent(key, result);
+    if (previous != null) return previous;
+    if (!ticketAdmission.tryAcquire()) {
+      creatingTickets.remove(key, result);
+      return CompletableFuture.failedFuture(
+          new java.util.concurrent.RejectedExecutionException("Too many ticket creations"));
+    }
+    try {
+      createPrivateTicket(route, managed)
+          .whenComplete(
+              (channel, error) -> {
+                if (error != null) result.completeExceptionally(error);
+                else result.complete(channel);
+                creatingTickets.remove(key, result);
+                ticketAdmission.release();
+              });
+    } catch (RuntimeException error) {
+      creatingTickets.remove(key, result);
+      ticketAdmission.release();
+      result.completeExceptionally(error);
+    }
+    return result;
+  }
+
+  private void managedChannel(String channel) {
+    if (channel == null || !channel.matches("[0-9]{5,25}") || !activeTickets.containsValue(channel))
+      throw new IllegalArgumentException("Канал не является активным обращением");
+  }
+
+  private static void confirmed(HttpResponse<?> response, int expected) {
+    if (response == null || response.statusCode() != expected)
+      throw new java.util.concurrent.CompletionException(
+          new IllegalStateException(
+              "Discord не подтвердил операцию ("
+                  + (response == null ? "нет ответа" : response.statusCode())
+                  + ")"));
+  }
+
+  @Override
+  public CompletableFuture<Boolean> updateTicketAccess(
+      String channel, List<String> roles, List<String> members) {
+    try {
+      managedChannel(channel);
+      var validated =
+          new dev.lovelace.lovecore.api.discord.ManagedTicketRequest(
+              new dev.lovelace.lovecore.api.discord.TicketRequest(
+                  TicketType.SUPPORT, "access", "", "", null, null, false),
+              roles,
+              members,
+              "mine-ticket-1");
+      return request("GET", "/users/@me", null)
+          .thenCompose(
+              identity -> {
+                confirmed(identity, 200);
+                String bot =
+                    JsonParser.parseString(identity.body())
+                        .getAsJsonObject()
+                        .get("id")
+                        .getAsString();
+                JsonArray access =
+                    TicketAccess.overwrites(
+                        guildId, bot, validated.supervisorRoleIds(), validated.memberIds());
+                JsonObject payload = new JsonObject();
+                payload.add("permission_overwrites", access);
+                return request("PATCH", "/channels/" + channel, payload.toString())
+                    .thenApply(
+                        response -> {
+                          confirmed(response, 200);
+                          return true;
+                        });
+              });
+    } catch (RuntimeException error) {
+      return CompletableFuture.failedFuture(error);
+    }
+  }
+
+  @Override
+  public CompletableFuture<Boolean> setTicketReadOnly(String channel, boolean locked) {
+    try {
+      managedChannel(channel);
+    } catch (RuntimeException error) {
+      return CompletableFuture.failedFuture(error);
+    }
+    return request("GET", "/users/@me", null)
+        .thenCompose(
+            identity -> {
+              confirmed(identity, 200);
+              String bot =
+                  JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
+              return request("GET", "/channels/" + channel, null)
+                  .thenCompose(
+                      existing -> {
+                        confirmed(existing, 200);
+                        JsonObject value =
+                            JsonParser.parseString(existing.body()).getAsJsonObject();
+                        if (!guildId.equals(value.get("guild_id").getAsString()))
+                          throw new IllegalStateException("Другая гильдия");
+                        JsonArray access = value.getAsJsonArray("permission_overwrites");
+                        for (JsonElement item : access) {
+                          JsonObject o = item.getAsJsonObject();
+                          if (o.get("type").getAsInt() == 1
+                              && bot.equals(o.get("id").getAsString())) continue;
+                          long allow = Long.parseLong(o.get("allow").getAsString()),
+                              deny = Long.parseLong(o.get("deny").getAsString());
+                          long writing =
+                              2048L | 32768L | 34359738368L | 68719476736L | 274877906944L;
+                          o.addProperty("allow", Long.toString(locked ? allow & ~writing : allow));
+                          o.addProperty(
+                              "deny", Long.toString(locked ? deny | writing : deny & ~writing));
+                        }
+                        JsonObject payload = new JsonObject();
+                        payload.add("permission_overwrites", access);
+                        return request("PATCH", "/channels/" + channel, payload.toString())
+                            .thenApply(
+                                response -> {
+                                  confirmed(response, 200);
+                                  return true;
+                                });
+                      });
+            });
+  }
+
+  @Override
+  public CompletableFuture<List<dev.lovelace.lovecore.api.discord.TicketMessage>> getTicketHistory(
+      String channel, String before) {
+    try {
+      managedChannel(channel);
+      if (before != null && !before.matches("[0-9]{5,25}"))
+        throw new IllegalArgumentException("Invalid cursor");
+    } catch (RuntimeException error) {
+      return CompletableFuture.failedFuture(error);
+    }
+    String key =
+        activeTickets.entrySet().stream()
+            .filter(e -> channel.equals(e.getValue()))
+            .map(Map.Entry::getKey)
+            .findFirst()
+            .orElseThrow();
+    return request(
+            "GET",
+            "/channels/"
+                + channel
+                + "/messages?limit=100"
+                + (before == null ? "" : "&before=" + before),
+            null)
+        .thenApply(
+            response -> {
+              confirmed(response, 200);
+              var messages = new ArrayList<dev.lovelace.lovecore.api.discord.TicketMessage>();
+              for (JsonElement item : JsonParser.parseString(response.body()).getAsJsonArray()) {
+                JsonObject message = item.getAsJsonObject(),
+                    author = message.getAsJsonObject("author");
+                var attachments =
+                    new ArrayList<dev.lovelace.lovecore.api.discord.TicketMessage.Attachment>();
+                for (JsonElement file : message.getAsJsonArray("attachments")) {
+                  JsonObject data = file.getAsJsonObject();
+                  attachments.add(
+                      new dev.lovelace.lovecore.api.discord.TicketMessage.Attachment(
+                          data.get("filename").getAsString(), data.get("url").getAsString()));
+                }
+                messages.add(
+                    new dev.lovelace.lovecore.api.discord.TicketMessage(
+                        key,
+                        channel,
+                        message.get("id").getAsString(),
+                        author.get("id").getAsString(),
+                        author.get("username").getAsString(),
+                        TicketAccess.transcriptText(message),
+                        attachments));
+              }
+              return List.copyOf(messages);
+            });
+  }
+
+  @Override
+  public CompletableFuture<byte[]> getTicketAttachment(String channel, String message, String url) {
+    try {
+      managedChannel(channel);
+      if (!message.matches("[0-9]{5,25}")) throw new IllegalArgumentException("Invalid message");
+      TicketAccess.attachmentUri(url);
+    } catch (RuntimeException error) {
+      return CompletableFuture.failedFuture(error);
+    }
+    return request("GET", "/channels/" + channel + "/messages/" + message, null)
+        .thenCompose(
+            response -> {
+              confirmed(response, 200);
+              URI authenticated =
+                  TicketAccess.authenticatedAttachment(
+                      JsonParser.parseString(response.body())
+                          .getAsJsonObject()
+                          .getAsJsonArray("attachments"),
+                      url);
+              return httpExecutor.supply(
+                  () -> {
+                    try {
+                      var req =
+                          HttpRequest.newBuilder(authenticated)
+                              .timeout(Duration.ofSeconds(30))
+                              .GET()
+                              .build();
+                      var res = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+                      try (var input = res.body()) {
+                        confirmed(res, 200);
+                        if (res.headers().firstValueAsLong("Content-Length").orElse(0)
+                            > TicketAccess.MAX_ATTACHMENT)
+                          throw new IllegalArgumentException("Вложение больше 8 МиБ");
+                        byte[] bytes = input.readNBytes(TicketAccess.MAX_ATTACHMENT + 1);
+                        if (bytes.length > TicketAccess.MAX_ATTACHMENT)
+                          throw new IllegalArgumentException("Вложение больше 8 МиБ");
+                        return bytes;
+                      }
+                    } catch (InterruptedException error) {
+                      Thread.currentThread().interrupt();
+                      throw new java.util.concurrent.CompletionException(error);
+                    } catch (IOException error) {
+                      throw new java.util.concurrent.CompletionException(error);
+                    }
+                  });
+            });
+  }
+
+  @Override
+  public CompletableFuture<Boolean> deleteTicketChannel(String channel) {
+    try {
+      managedChannel(channel);
+    } catch (RuntimeException error) {
+      return CompletableFuture.failedFuture(error);
+    }
+    return request("DELETE", "/channels/" + channel, null)
+        .thenApply(
+            response -> {
+              if (response == null
+                  || !(response.statusCode() == 200
+                      || response.statusCode() == 204
+                      || response.statusCode() == 404))
+                throw new IllegalStateException("Удаление канала не подтверждено");
+              activeTickets.values().removeIf(channel::equals);
+              channelLastMessageId.remove(channel);
+              saveCursors();
+              return true;
+            });
+  }
+
+  @Override
+  public String getDiscordGuildId() {
+    return guildId;
+  }
+
+  @Override
+  public CompletableFuture<java.util.Set<String>> getMemberRoleIds(String user) {
+    if (user == null || !user.matches("[0-9]{5,25}"))
+      return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid member"));
+    return request("GET", "/guilds/" + guildId + "/members/" + user, null)
+        .thenApply(
+            response -> {
+              if (response != null && response.statusCode() == 404) return java.util.Set.of();
+              confirmed(response, 200);
+              var roles = new java.util.HashSet<String>();
+              for (JsonElement role :
+                  JsonParser.parseString(response.body()).getAsJsonObject().getAsJsonArray("roles"))
+                roles.add(role.getAsString());
+              return java.util.Set.copyOf(roles);
+            });
+  }
+
+  @Override
+  public CompletableFuture<Boolean> editInteractionResponse(
+      dev.lovelace.lovecore.api.discord.DiscordInteraction interaction, String json) {
+    JsonObject payload = JsonParser.parseString(json).getAsJsonObject();
+    payload.add("allowed_mentions", noMentions());
+    return request(
+            "PATCH",
+            "/webhooks/"
+                + interaction.applicationId()
+                + "/"
+                + interaction.token()
+                + "/messages/@original",
+            payload.toString())
+        .thenApply(
+            response -> {
+              confirmed(response, 200);
+              return true;
+            });
+  }
+
+  @Override
+  public CompletableFuture<String> ensureMessage(String channel, String message, String json) {
+    if (channel == null
+        || !channel.matches("[0-9]{5,25}")
+        || message != null && !message.matches("[0-9]{5,25}"))
+      return CompletableFuture.failedFuture(
+          new IllegalArgumentException("Invalid message destination"));
+    JsonObject payload = JsonParser.parseString(json).getAsJsonObject();
+    payload.add("allowed_mentions", noMentions());
+    if (message == null)
+      return sendMessage(channel, payload.toString(), null)
+          .thenApply(
+              id -> {
+                if (id == null) throw new IllegalStateException("Отправка не подтверждена");
+                return id;
+              });
+    return request("PATCH", "/channels/" + channel + "/messages/" + message, payload.toString())
+        .thenCompose(
+            response -> {
+              if (response != null && response.statusCode() == 404)
+                return sendMessage(channel, payload.toString(), null)
+                    .thenApply(
+                        id -> {
+                          if (id == null)
+                            throw new IllegalStateException("Отправка не подтверждена");
+                          return id;
+                        });
+              confirmed(response, 200);
+              return CompletableFuture.completedFuture(
+                  JsonParser.parseString(response.body())
+                      .getAsJsonObject()
+                      .get("id")
+                      .getAsString());
+            });
+  }
+
     private JsonObject overwrite(String id,int type,String allow,String deny){JsonObject o=new JsonObject();o.addProperty("id",id);o.addProperty("type",type);o.addProperty("allow",allow);o.addProperty("deny",deny);return o;}
 
     @Override

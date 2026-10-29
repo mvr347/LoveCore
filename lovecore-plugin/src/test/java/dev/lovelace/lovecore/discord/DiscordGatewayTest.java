@@ -28,6 +28,21 @@ class DiscordGatewayTest {
             gateway.onText(new Socket(),p.substring(30),true);assertEquals("55",found.get().userId());assertEquals("",found.get().guildId());
         }
     }
+
+  @Test
+  void channelContextIsTakenFromDiscordNotSubmittedFields() {
+    AtomicReference<DiscordInteraction> found = new AtomicReference<>();
+    try (var client = HttpClient.newHttpClient();
+        var gateway = new DiscordGateway(client, "unused", found::set)) {
+      String p =
+          """
+                {"op":0,"t":"INTERACTION_CREATE","d":{"id":"1","application_id":"2","token":"secret","type":5,"channel_id":"12345","guild_id":"33333","member":{"user":{"id":"44444"}},"data":{"custom_id":"lwa:desk:submit:close:report:1","components":[{"components":[{"custom_id":"_channelId","value":"99999"}]}]}}}
+                """;
+      gateway.onText(new Socket(), p, true);
+      assertEquals("12345", found.get().values().get("_channelId"));
+    }
+  }
+
     static class Socket implements WebSocket {
         public CompletableFuture<WebSocket> sendText(CharSequence x,boolean last){return CompletableFuture.completedFuture(this);}
         public CompletableFuture<WebSocket> sendBinary(ByteBuffer x,boolean last){return CompletableFuture.completedFuture(this);}

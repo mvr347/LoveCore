@@ -90,5 +90,63 @@ public interface DiscordService {
         return CompletableFuture.completedFuture(false);
     }
     default boolean supportsExplicitTicketRouting() { return false; }
+
+  default String getDiscordGuildId() {
+    return "";
+  }
+
+  /** Managed cases never inherit the generic staff-role-ids access. */
+  default CompletableFuture<String> createManagedTicket(ManagedTicketRequest request) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Managed tickets require Discord API v4"));
+  }
+
+  default CompletableFuture<Boolean> updateTicketAccess(
+      String channelId, java.util.List<String> roles, java.util.List<String> members) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Managed access unavailable"));
+  }
+
+  default CompletableFuture<Boolean> setTicketReadOnly(String channelId, boolean locked) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Ticket locking unavailable"));
+  }
+
+  /** At most 100 messages, newest first; callers paginate and persist before deleting. */
+  default CompletableFuture<java.util.List<TicketMessage>> getTicketHistory(
+      String channelId, String beforeId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Ticket history unavailable"));
+  }
+
+  /** Only an attachment confirmed by the authenticated message endpoint may be downloaded. */
+  default CompletableFuture<byte[]> getTicketAttachment(
+      String channelId, String messageId, String attachmentUrl) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Ticket attachments unavailable"));
+  }
+
+  default CompletableFuture<Boolean> deleteTicketChannel(String channelId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Ticket deletion unavailable"));
+  }
+
+  default CompletableFuture<java.util.Set<String>> getMemberRoleIds(String userId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Member lookup unavailable"));
+  }
+
+  default CompletableFuture<Boolean> editInteractionResponse(
+      DiscordInteraction interaction, String payloadJson) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Rich interaction response unavailable"));
+  }
+
+  /** Recreate only after a confirmed 404; an unknown send result is never blindly retried. */
+  default CompletableFuture<String> ensureMessage(
+      String channelId, String messageId, String payloadJson) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Persistent messages unavailable"));
+  }
 }
 
