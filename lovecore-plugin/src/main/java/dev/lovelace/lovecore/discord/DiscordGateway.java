@@ -63,6 +63,7 @@ final class DiscordGateway implements WebSocket.Listener, AutoCloseable {
             if(data.has("components"))for(JsonElement row:data.getAsJsonArray("components"))for(JsonElement el:row.getAsJsonObject().getAsJsonArray("components")){JsonObject f=el.getAsJsonObject();if(f.has("value"))values.put(f.get("custom_id").getAsString(),f.get("value").getAsString());}
       if (data.has("values"))
         values.put("selected", data.getAsJsonArray("values").get(0).getAsString());
+      values.keySet().removeIf(key -> key.startsWith("_"));
       if (d.has("channel_id")) values.put("_channelId", d.get("channel_id").getAsString());
       if (d.has("message"))
         values.put("_messageId", d.getAsJsonObject("message").get("id").getAsString());

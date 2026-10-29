@@ -40,6 +40,8 @@ class DiscordGatewayTest {
                 """;
       gateway.onText(new Socket(), p, true);
       assertEquals("12345", found.get().values().get("_channelId"));
+      gateway.onText(new Socket(), p.replace("\"channel_id\":\"12345\",", ""), true);
+      assertNull(found.get().values().get("_channelId"));
     }
   }
 
