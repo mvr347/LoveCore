@@ -54,6 +54,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     private final Map<UUID, String> playerToDiscord = new ConcurrentHashMap<>();
     private final Map<String, UUID> discordToPlayer = new ConcurrentHashMap<>();
     private final Map<String, LinkCode> linkCodes = new ConcurrentHashMap<>();
+    private final java.util.concurrent.Semaphore ticketAdmission=new java.util.concurrent.Semaphore(64);
     private final Map<String, CompletableFuture<String>> creatingTickets = new ConcurrentHashMap<>();
     private final Map<String, String> activeTickets = new ConcurrentHashMap<>(); // ticketId -> channelId
     private final Map<String, String> channelLastMessageId = new ConcurrentHashMap<>();
@@ -232,6 +233,22 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             return sendPostRequest("/applications/"+app+"/guilds/"+guildId+"/commands",body.toString()).thenApply(r->r!=null&&r.statusCode()<300);
         });
     }
+    @Override public CompletableFuture<Boolean> unregisterCommand(String name) {
+        if(name==null||!name.matches("[\\p{L}0-9_-]{1,32}"))return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid command"));
+        return request("GET","/users/@me",null).thenCompose(identity->{
+            if(identity==null||identity.statusCode()!=200)return CompletableFuture.completedFuture(false);
+            String app=JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
+            String path="/applications/"+app+"/guilds/"+guildId+"/commands";
+            return request("GET",path,null).thenCompose(commands->{
+                if(commands==null||commands.statusCode()!=200)return CompletableFuture.completedFuture(false);
+                for(var element:JsonParser.parseString(commands.body()).getAsJsonArray()) {
+                    var command=element.getAsJsonObject();
+                    if(name.equals(command.get("name").getAsString()))return request("DELETE",path+"/"+command.get("id").getAsString(),null).thenApply(response->response!=null&&response.statusCode()<300);
+                }
+                return CompletableFuture.completedFuture(true);
+            });
+        });
+    }
     @Override public CompletableFuture<Boolean> respond(dev.lovelace.lovecore.api.discord.DiscordInteraction i,String json) {
         return sendPostRequest("/interactions/"+i.id()+"/"+i.token()+"/callback",json).thenApply(r->r!=null&&r.statusCode()<300);
     }
@@ -244,6 +261,13 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         if(data.has("content"))data.addProperty("content",cap(data.get("content").getAsString(),2000));
         return request(messageId==null?"POST":"PATCH","/channels/"+channel+"/messages"+(messageId==null?"":"/"+messageId),data.toString()).thenApply(r->{if(r==null||r.statusCode()>=300)return null;return JsonParser.parseString(r.body()).getAsJsonObject().get("id").getAsString();});
     }
+    @Override public CompletableFuture<String> sendImage(String channel,String content,String filename,String mime,byte[] image) {
+        if(channel==null||!channel.matches("[0-9]{5,25}"))return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid channel"));
+        var upload=DiscordUpload.image(content,filename,mime,image);
+        return request("POST","/channels/"+channel+"/messages",upload.contentType(),HttpRequest.BodyPublishers.ofByteArray(upload.bytes())).thenApply(response->{
+            if(response==null||response.statusCode()<200||response.statusCode()>=300)return null;return JsonParser.parseString(response.body()).getAsJsonObject().get("id").getAsString();
+        });
+    }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
     static String ticketKey(TicketType type,String id){return type.name()+":"+id;}
     @Override public void restoreTicket(String id,String channel){activeTickets.put(id.contains(":")?id:ticketKey(TicketType.BAN_APPEAL,id),channel);}
@@ -254,16 +278,26 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     }
 
     @Override public CompletableFuture<String> createTicketChannel(TicketType type,String ticketId,String playerName,String initialReason,String ownerDiscordId) {
+        return createTicketChannel(new dev.lovelace.lovecore.api.discord.TicketRequest(type,ticketId,playerName,initialReason,ownerDiscordId,null,false));
+    }
+    @Override public boolean supportsExplicitTicketRouting() { return true; }
+    @Override public CompletableFuture<String> createTicketChannel(dev.lovelace.lovecore.api.discord.TicketRequest request) {
+        var type=request.type();var ticketId=request.ticketId();
+        if(request.preview()&&(request.categoryId().equals(appealsCategoryId)||request.categoryId().equals(supportCategoryId)))
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Тестовая категория совпадает с рабочей"));
         String key=ticketKey(type,ticketId);
         CompletableFuture<String> result=new CompletableFuture<>();
         var previous=creatingTickets.putIfAbsent(key,result);if(previous!=null)return previous;
-        try{createPrivateTicket(type,ticketId,playerName,initialReason,ownerDiscordId).whenComplete((channel,error)->{
+        if(!ticketAdmission.tryAcquire()){creatingTickets.remove(key,result);return CompletableFuture.failedFuture(new java.util.concurrent.RejectedExecutionException("Too many ticket creations"));}
+        try{createPrivateTicket(request).whenComplete((channel,error)->{
             if(error!=null)result.completeExceptionally(error);else result.complete(channel);
-            creatingTickets.remove(key,result);
-        });}catch(RuntimeException e){creatingTickets.remove(key,result);result.completeExceptionally(e);}
+            creatingTickets.remove(key,result);ticketAdmission.release();
+        });}catch(RuntimeException e){creatingTickets.remove(key,result);ticketAdmission.release();result.completeExceptionally(e);}
         return result;
     }
-    private CompletableFuture<String> createPrivateTicket(TicketType type,String ticketId,String playerName,String initialReason,String ownerDiscordId) {
+    private CompletableFuture<String> createPrivateTicket(dev.lovelace.lovecore.api.discord.TicketRequest request) {
+        var type=request.type();var ticketId=request.ticketId();var playerName=request.playerName();
+        var initialReason=request.reason();var ownerDiscordId=request.ownerDiscordId();
         if (!isEnabled() || guildId.isBlank()) return CompletableFuture.completedFuture(null);
         String existing=activeTickets.get(ticketKey(type,ticketId));if(existing!=null)return CompletableFuture.completedFuture(existing);
         JsonArray permissions = new JsonArray();
@@ -272,7 +306,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         if(ownerDiscordId!=null&&!ownerDiscordId.isBlank())permissions.add(overwrite(ownerDiscordId,1,"101376","0"));
         String prefix = type == TicketType.BAN_APPEAL ? "бан-" : (type == TicketType.SUPPORT ? "саппорт-" : "тикет-");
         String sanitizedName = playerName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "");
-        String channelName = "ticket-" + prefix + sanitizedName;
+        String channelName = (request.preview()?"test-":"ticket-") + prefix + sanitizedName;
 
         JsonObject payload = new JsonObject();
         payload.addProperty("name", channelName);
@@ -280,7 +314,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         payload.add("permission_overwrites",permissions);
         payload.addProperty("topic", cap("Тикет: " + ticketId + " | Игрок: " + playerName + " | Причина: " + initialReason,1024));
 
-        String category = type == TicketType.BAN_APPEAL ? appealsCategoryId : supportCategoryId;
+        String category = request.categoryId()!=null&&!request.categoryId().isBlank()?request.categoryId():(type == TicketType.BAN_APPEAL ? appealsCategoryId : supportCategoryId);
         if (category != null && !category.isBlank()) {
             payload.addProperty("parent_id", category);
         }
@@ -303,7 +337,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
                 // Отправляем вступительное сообщение
                 DiscordEmbed intro = new DiscordEmbed(
-                        "⚔ Тикет " + (type == TicketType.BAN_APPEAL ? "апелляции бана" : "поддержки"),
+                        (request.preview()?"[ТЕСТ] ":"") + "⚔ Тикет " + (type == TicketType.BAN_APPEAL ? "апелляции бана" : type == TicketType.REPORT ? "жалобы" : "поддержки"),
                         "**Игрок:** `" + playerName + "`\n" +
                                 "**Тикет ID:** `" + ticketId + "`\n" +
                                 "**Описание:** " + initialReason + "\n\n" +
@@ -313,7 +347,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                         "LoveCore Ticket System",
                         java.time.Instant.now()
                 );
-                sendChannelMessage(channelId, "@here Новое обращение от игрока `" + playerName + "`", intro);
+                sendChannelMessage(channelId, (request.preview()?"[ТЕСТ] ":"")+"Новое обращение от игрока `" + playerName + "`", intro);
 
                 return channelId;
             } catch (Exception e) {
@@ -380,6 +414,9 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
     private CompletableFuture<HttpResponse<String>> sendPostRequest(String endpoint,String jsonBody) {return request("POST",endpoint,jsonBody);}
     private CompletableFuture<HttpResponse<String>> request(String method,String endpoint,String body) {
+        return request(method,endpoint,"application/json",body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
+    }
+    private CompletableFuture<HttpResponse<String>> request(String method,String endpoint,String contentType,HttpRequest.BodyPublisher body) {
         if(!isEnabled())return CompletableFuture.completedFuture(null);
         if(!admission.tryAcquire())return CompletableFuture.failedFuture(new java.util.concurrent.RejectedExecutionException("Discord queue full"));
         CompletableFuture<HttpResponse<String>> result;
@@ -389,8 +426,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                 requestLimit.acquire();acquired=true;
                 for(int attempt=0;attempt<4;attempt++) {
                     var b=HttpRequest.newBuilder().uri(URI.create(API_BASE+endpoint)).timeout(Duration.ofSeconds(10))
-                        .header("Authorization","Bot "+botToken).header("Content-Type","application/json")
-                        .method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body));
+                        .header("Authorization","Bot "+botToken).header("Content-Type",contentType)
+                        .method(method,body);
                     var response=httpClient.send(b.build(),HttpResponse.BodyHandlers.ofString());
                     if(response.statusCode()!=429)return response;
                     double delay=JsonParser.parseString(response.body()).getAsJsonObject().get("retry_after").getAsDouble();
