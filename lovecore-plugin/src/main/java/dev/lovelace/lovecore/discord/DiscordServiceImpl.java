@@ -65,6 +65,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     private final java.util.concurrent.Semaphore admission = new java.util.concurrent.Semaphore(264);
     private final List<dev.lovelace.lovecore.api.discord.TicketMessageListenerV2> listenersV2 = new CopyOnWriteArrayList<>();
     private final List<dev.lovelace.lovecore.api.discord.DiscordInteractionListener> interactions = new CopyOnWriteArrayList<>();
+    private final InteractionOwnership ownership = new InteractionOwnership();
 
     // Blocking HTTP calls (including the 3 s sleep in closeTicketChannel) run on virtual threads instead of
     // ForkJoinPool.commonPool(), which is shared by every plugin on the JVM and would be starved by them.
@@ -222,9 +223,13 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     @Override public void unregisterInteractionListener(dev.lovelace.lovecore.api.discord.DiscordInteractionListener listener){interactions.remove(listener);}
     private void onInteraction(dev.lovelace.lovecore.api.discord.DiscordInteraction interaction) {
         for(var listener:interactions)try{if(listener.onInteraction(interaction))return;}catch(RuntimeException e){plugin.getLogger().warning("Ошибка обработчика Discord");}
+        // Not ours: another gateway on the same token (LoveAuth) answers it, and a second answer would break it.
+        if(!ownership.owns(interaction.type(),interaction.name()))return;
         respond(interaction,"{\"type\":4,\"data\":{\"content\":\"Действие временно недоступно\",\"flags\":64}}");
     }
+    @Override public void claimInteractionPrefix(String prefix){ownership.claimPrefix(prefix);}
     @Override public CompletableFuture<Boolean> registerCommand(String name,String description,Map<String,String> options) {
+        ownership.addCommand(name);
         JsonObject body=new JsonObject();body.addProperty("name",name);body.addProperty("description",description);
         JsonArray opts=new JsonArray();options.forEach((key,value)->{JsonObject o=new JsonObject();o.addProperty("type",3);o.addProperty("name",key);o.addProperty("description",value);o.addProperty("required",false);opts.add(o);});body.add("options",opts);
         return request("GET","/users/@me",null).thenCompose(resp->{
@@ -234,6 +239,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         });
     }
     @Override public CompletableFuture<Boolean> unregisterCommand(String name) {
+        ownership.removeCommand(name);
         if(name==null||!name.matches("[\\p{L}0-9_-]{1,32}"))return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid command"));
         return request("GET","/users/@me",null).thenCompose(identity->{
             if(identity==null||identity.statusCode()!=200)return CompletableFuture.completedFuture(false);
