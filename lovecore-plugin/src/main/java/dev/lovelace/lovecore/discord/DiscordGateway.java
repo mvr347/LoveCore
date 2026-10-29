@@ -61,6 +61,12 @@ final class DiscordGateway implements WebSocket.Listener, AutoCloseable {
             Map<String,String> values=new HashMap<>();
             if(data.has("options"))for(JsonElement el:data.getAsJsonArray("options")){JsonObject option=el.getAsJsonObject();if(option.has("value"))values.put(option.get("name").getAsString(),option.get("value").getAsString());}
             if(data.has("components"))for(JsonElement row:data.getAsJsonArray("components"))for(JsonElement el:row.getAsJsonObject().getAsJsonArray("components")){JsonObject f=el.getAsJsonObject();if(f.has("value"))values.put(f.get("custom_id").getAsString(),f.get("value").getAsString());}
+      if (data.has("values"))
+        values.put("selected", data.getAsJsonArray("values").get(0).getAsString());
+      values.keySet().removeIf(key -> key.startsWith("_"));
+      if (d.has("channel_id")) values.put("_channelId", d.get("channel_id").getAsString());
+      if (d.has("message"))
+        values.put("_messageId", d.getAsJsonObject("message").get("id").getAsString());
             String name=data.has("custom_id")?data.get("custom_id").getAsString():data.get("name").getAsString();
             callback.accept(new DiscordInteraction(d.get("id").getAsString(),d.get("application_id").getAsString(),d.get("token").getAsString(),user.get("id").getAsString(),d.has("guild_id")?d.get("guild_id").getAsString():"",name,d.get("type").getAsInt(),values));
         }
