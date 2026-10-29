@@ -57,6 +57,12 @@ public interface DiscordService {
     default void unregisterTicketMessageListenerV2(TicketMessageListenerV2 listener) {}
     default void registerInteractionListener(DiscordInteractionListener listener) {}
     default void unregisterInteractionListener(DiscordInteractionListener listener) {}
+    /**
+     * Declares that component and modal ids starting with {@code prefix} belong to the calling plugin. LoveCore then
+     * answers them with "unavailable" while no listener takes them; ids nobody claimed are left to other gateways
+     * sharing the bot token. Slash commands are claimed by {@link #registerCommand}.
+     */
+    default void claimInteractionPrefix(String prefix) {}
     default CompletableFuture<Boolean> registerCommand(String name,String description,java.util.Map<String,String> options) { return CompletableFuture.completedFuture(false); }
     /** Callback JSON uses Discord's interaction response schema; tokens must never be logged. */
     default CompletableFuture<Boolean> respond(DiscordInteraction interaction,String responseJson) { return CompletableFuture.completedFuture(false); }
