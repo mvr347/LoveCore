@@ -38,7 +38,7 @@ public class NotifyCommand implements CommandExecutor, TabCompleter {
     @SuppressWarnings("NullableProblems")
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("Только для игроков.");
+            sender.sendMessage(mm.deserialize("<red>Команда доступна только игрокам.</red>"));
             return true;
         }
 
@@ -71,7 +71,7 @@ public class NotifyCommand implements CommandExecutor, TabCompleter {
 
     private void sendStatus(Player player) {
         Set<Channel> enabled = loveNotify.getEnabledChannels(player.getUniqueId());
-        player.sendMessage(mm.deserialize("<dark_gray>========== <gold>Уведомления</gold> ==========</dark_gray>"));
+        player.sendMessage(mm.deserialize("<dark_gray>========== <aqua>Уведомления</aqua> ==========</dark_gray>"));
         for (Channel channel : Channel.values()) {
             boolean on = enabled.contains(channel);
             player.sendMessage(mm.deserialize(

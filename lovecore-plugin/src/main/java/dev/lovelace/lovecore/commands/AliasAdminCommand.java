@@ -111,7 +111,7 @@ public class AliasAdminCommand implements CommandExecutor, TabCompleter {
         }
         for (AliasDefinition def : registry.all().values()) {
             String slot = manager.isPrimarySlot(def.name()) ? "" : " <yellow>(занят, только lovecore:" + def.name() + ")</yellow>";
-            sender.sendMessage(mm.deserialize("<gold>/" + def.name() + "</gold> <gray>-></gray> <white>" + def.target() + "</white>" + slot));
+            sender.sendMessage(mm.deserialize("<aqua>/" + def.name() + "</aqua> <gray>-></gray> <white>" + def.target() + "</white>" + slot));
         }
         sendFooter(sender);
     }
@@ -199,18 +199,18 @@ public class AliasAdminCommand implements CommandExecutor, TabCompleter {
 
     private void sendHelp(CommandSender sender) {
         sendHeader(sender);
-        sender.sendMessage(mm.deserialize("<gold>/lovealias add <алиас> <команда...></gold> <gray>- Создать/заменить алиас (можно с %1%, %2%, %player%)</gray>"));
-        sender.sendMessage(mm.deserialize("<gold>/lovealias remove <алиас></gold> <gray>- Удалить алиас</gray>"));
-        sender.sendMessage(mm.deserialize("<gold>/lovealias list</gold> <gray>- Список всех алиасов</gray>"));
-        sender.sendMessage(mm.deserialize("<gold>/lovealias info <алиас></gold> <gray>- Подробности по алиасу</gray>"));
-        sender.sendMessage(mm.deserialize("<gold>/lovealias permission <алиас> <право|none></gold> <gray>- Право доступа для алиаса</gray>"));
-        sender.sendMessage(mm.deserialize("<gold>/lovealias tab <алиас> <delegate|players|fixed <слова...>|none></gold> <gray>- Таб-автодополнение</gray>"));
-        sender.sendMessage(mm.deserialize("<gold>/lovealias reload</gold> <gray>- Перечитать aliases.yml с диска</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias add <алиас> <команда...></aqua> <gray>- Создать/заменить алиас (можно с %1%, %2%, %player%)</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias remove <алиас></aqua> <gray>- Удалить алиас</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias list</aqua> <gray>- Список всех алиасов</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias info <алиас></aqua> <gray>- Подробности по алиасу</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias permission <алиас> <право|none></aqua> <gray>- Право доступа для алиаса</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias tab <алиас> <delegate|players|fixed <слова...>|none></aqua> <gray>- Таб-автодополнение</gray>"));
+        sender.sendMessage(mm.deserialize("<aqua>/lovealias reload</aqua> <gray>- Перечитать aliases.yml с диска</gray>"));
         sendFooter(sender);
     }
 
     private void sendHeader(CommandSender sender) {
-        sender.sendMessage(mm.deserialize("<dark_gray>========== <gold>LoveCore Aliases</gold> ==========</dark_gray>"));
+        sender.sendMessage(mm.deserialize("<dark_gray>========== <aqua>LoveCore Aliases</aqua> ==========</dark_gray>"));
     }
 
     private void sendFooter(CommandSender sender) {
