@@ -142,6 +142,14 @@ public interface DiscordService {
         new UnsupportedOperationException("Rich interaction response unavailable"));
   }
 
+  /**
+   * Read-only channel diagnostics. Does not claim that a successful GET proves send permissions.
+   */
+  default CompletableFuture<java.util.Map<String, Object>> inspectChannel(String channelId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Channel diagnostics unavailable"));
+  }
+
   /** Recreate only after a confirmed 404; an unknown send result is never blindly retried. */
   default CompletableFuture<String> ensureMessage(
       String channelId, String messageId, String payloadJson) {

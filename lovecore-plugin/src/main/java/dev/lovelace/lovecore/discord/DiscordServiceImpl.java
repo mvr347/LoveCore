@@ -780,30 +780,71 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
           new IllegalArgumentException("Invalid message destination"));
     JsonObject payload = JsonParser.parseString(json).getAsJsonObject();
     payload.add("allowed_mentions", noMentions());
-    if (message == null)
-      return sendMessage(channel, payload.toString(), null)
-          .thenApply(
-              id -> {
-                if (id == null) throw new IllegalStateException("Отправка не подтверждена");
-                return id;
-              });
+    if (message == null) return createConfirmedMessage(channel, payload.toString());
     return request("PATCH", "/channels/" + channel + "/messages/" + message, payload.toString())
         .thenCompose(
             response -> {
               if (response != null && response.statusCode() == 404)
-                return sendMessage(channel, payload.toString(), null)
-                    .thenApply(
-                        id -> {
-                          if (id == null)
-                            throw new IllegalStateException("Отправка не подтверждена");
-                          return id;
-                        });
-              confirmed(response, 200);
+                return createConfirmedMessage(channel, payload.toString());
+              if (response == null) throw new IllegalStateException("Результат Discord неизвестен");
               return CompletableFuture.completedFuture(
-                  JsonParser.parseString(response.body())
-                      .getAsJsonObject()
-                      .get("id")
-                      .getAsString());
+                  DiscordMessageResult.id(response.statusCode(), response.body()));
+            });
+  }
+
+  private CompletableFuture<String> createConfirmedMessage(String channel, String payload) {
+    return request("POST", "/channels/" + channel + "/messages", payload)
+        .thenApply(
+            response -> {
+              if (response == null)
+                throw new IllegalStateException("Результат отправки Discord неизвестен");
+              return DiscordMessageResult.id(response.statusCode(), response.body());
+            });
+  }
+
+  @Override
+  public CompletableFuture<java.util.Map<String, Object>> inspectChannel(String channel) {
+    if (channel == null || !channel.matches("[0-9]{5,25}"))
+      return CompletableFuture.failedFuture(new IllegalArgumentException("Некорректный ID канала"));
+    return request("GET", "/channels/" + channel, null)
+        .thenApply(
+            response -> {
+              if (response == null)
+                throw new IllegalStateException("Discord не ответил на проверку канала");
+              DiscordMessageResult.id(response.statusCode(), response.body());
+              var data = JsonParser.parseString(response.body()).getAsJsonObject();
+              if (!data.has("guild_id") || !guildId.equals(data.get("guild_id").getAsString()))
+                throw new IllegalArgumentException("Канал принадлежит другому Discord-серверу");
+              var access = new java.util.ArrayList<java.util.Map<String, Object>>();
+              if (data.has("permission_overwrites"))
+                for (var element : data.getAsJsonArray("permission_overwrites")) {
+                  var a = element.getAsJsonObject();
+                  access.add(
+                      java.util.Map.of(
+                          "id",
+                          a.get("id").getAsString(),
+                          "type",
+                          a.get("type").getAsInt(),
+                          "allow",
+                          a.get("allow").getAsString(),
+                          "deny",
+                          a.get("deny").getAsString()));
+                }
+              return java.util.Map.<String, Object>of(
+                  "id",
+                  channel,
+                  "guildId",
+                  guildId,
+                  "name",
+                  data.get("name").getAsString(),
+                  "type",
+                  data.get("type").getAsInt(),
+                  "parentId",
+                  data.has("parent_id") && !data.get("parent_id").isJsonNull()
+                      ? data.get("parent_id").getAsString()
+                      : "",
+                  "overwrites",
+                  access);
             });
   }
 
@@ -847,24 +888,43 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         if(!isEnabled())return CompletableFuture.completedFuture(null);
         if(!admission.tryAcquire())return CompletableFuture.failedFuture(new java.util.concurrent.RejectedExecutionException("Discord queue full"));
         CompletableFuture<HttpResponse<String>> result;
-        try { result=httpExecutor.supply(()->{
-            boolean acquired=false;
-            try {
-                requestLimit.acquire();acquired=true;
-                for(int attempt=0;attempt<4;attempt++) {
-                    var b=HttpRequest.newBuilder().uri(URI.create(API_BASE+endpoint)).timeout(Duration.ofSeconds(10))
-                        .header("Authorization","Bot "+botToken).header("Content-Type",contentType)
-                        .method(method,body);
-                    var response=httpClient.send(b.build(),HttpResponse.BodyHandlers.ofString());
-                    if(response.statusCode()!=429)return response;
-                    double delay=JsonParser.parseString(response.body()).getAsJsonObject().get("retry_after").getAsDouble();
-                    Thread.sleep(Math.min(30000,Math.max(100,(long)(delay*1000))));
+        try {
+      result =
+          httpExecutor.supply(
+              () -> {
+                boolean acquired = false;
+                try {
+                  requestLimit.acquire();
+                  acquired = true;
+                  for (int attempt = 0; attempt < 4; attempt++) {
+                    var b =
+                        HttpRequest.newBuilder()
+                            .uri(URI.create(API_BASE + endpoint))
+                            .timeout(Duration.ofSeconds(10))
+                            .header("Authorization", "Bot " + botToken)
+                            .header("Content-Type", contentType)
+                            .method(method, body);
+                    var response = httpClient.send(b.build(), HttpResponse.BodyHandlers.ofString());
+                    if (response.statusCode() != 429 || attempt == 3) return response;
+                    double delay =
+                        JsonParser.parseString(response.body())
+                            .getAsJsonObject()
+                            .get("retry_after")
+                            .getAsDouble();
+                    Thread.sleep(Math.min(30000, Math.max(100, (long) (delay * 1000))));
+                  }
+                  return null;
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  return null;
+                } catch (Exception e) {
+                  plugin.getLogger().warning("Не удалось выполнить запрос Discord");
+                  return null;
+                } finally {
+                  if (acquired) requestLimit.release();
                 }
-                return null;
-            } catch(InterruptedException e){Thread.currentThread().interrupt();return null;}
-            catch(Exception e){plugin.getLogger().warning("Не удалось выполнить запрос Discord");return null;}
-            finally{if(acquired)requestLimit.release();}
-        }); }
+              });
+    }
         catch(RuntimeException e){admission.release();return CompletableFuture.failedFuture(e);}
         return result.whenComplete((v,e)->admission.release());
     }
