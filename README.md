@@ -70,6 +70,7 @@ softdepend: [LoveCore]
 | `NpcProvider` | NPC: поиск по ключу, создание, метки, голограммы, скин; события `NpcClickEvent`, `NpcSpawnEvent` | Citizens или LoveEssential |
 | `PresenceOracle` | скрыт ли игрок, AFK, имя для показа, скин | CMI или LoveEssential |
 | `DownedOracle` | лежит ли игрок раненым, поднимают ли его | ReviveMe или LoveEssential |
+| `ReviveService` | поднять раненого извне (эликсир LoveBrew), найти раненого по сущности его тела | LoveEssential |
 | `DisplayPrefs` | личные флаги показа тега клана и суффикса: чат, TAB, ник над головой | LoveEssential |
 
 ### Контракты с несколькими реализациями
