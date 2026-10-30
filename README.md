@@ -71,6 +71,7 @@ softdepend: [LoveCore]
 | `PresenceOracle` | скрыт ли игрок, AFK, имя для показа, скин | CMI или LoveEssential |
 | `DownedOracle` | лежит ли игрок раненым, поднимают ли его | ReviveMe или LoveEssential |
 | `ReviveService` | поднять раненого извне (эликсир LoveBrew), найти раненого по сущности его тела | LoveEssential |
+| `SecretBook` | «Книга тайн»: отметить пасхалку найденной (`discover`), узнать найденные; событие `SecretDiscoveredEvent` | LoveEssential |
 | `DisplayPrefs` | личные флаги показа тега клана и суффикса: чат, TAB, ник над головой | LoveEssential |
 
 ### Контракты с несколькими реализациями
