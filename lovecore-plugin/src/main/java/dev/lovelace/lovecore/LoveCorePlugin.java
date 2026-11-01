@@ -67,6 +67,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        dev.lovelace.lovecore.gui.GuiStyles.migrate(this);
         saveDefaultConfig();
 
         statBus = new BufferedStatBus(this);
