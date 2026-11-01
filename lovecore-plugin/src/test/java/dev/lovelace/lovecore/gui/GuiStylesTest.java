@@ -40,4 +40,19 @@ class GuiStylesTest {
         m.loadFromString(m.saveToString().replace("gui.yml", "../other.yml"));
         assertThrows(Exception.class, () -> GuiStyles.migrate(root,m));
     }
+
+    @Test
+    void followupsUpgradeOnlyStockValuesAndPreserveCustomSettings() throws Exception {
+        Path file = root.resolve("gui.yml");
+        Files.writeString(file, "stock: old\ncustom: owner-choice\n");
+        var m = new YamlConfiguration();
+        m.loadFromString(
+                "version: 20261102\nupdates:\n- file: gui.yml\n  path: stock\n  before: old\n  value: new\n  preserve-custom: true\n- file: gui.yml\n  path: custom\n  before: old\n  value: new\n  preserve-custom: true\n");
+        GuiStyles.migrate(root, m);
+        var updated = YamlConfiguration.loadConfiguration(file.toFile());
+        assertEquals("new", updated.getString("stock"));
+        assertEquals("owner-choice", updated.getString("custom"));
+        assertTrue(Files.exists(root.resolve("gui.yml.pre-style-20261102.bak")));
+        assertTrue(Files.exists(root.resolve(".gui-style-20261102")));
+    }
 }

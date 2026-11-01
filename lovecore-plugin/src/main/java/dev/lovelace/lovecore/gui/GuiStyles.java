@@ -12,14 +12,16 @@ public final class GuiStyles {
     private GuiStyles() {}
 
     public static void migrate(JavaPlugin plugin) {
-        try (InputStream stream = plugin.getResource("gui-style-migration.yml")) {
-            if (stream == null) return;
+        for (String resource : List.of("gui-style-migration.yml", "gui-style-followup.yml")) {
+            try (InputStream stream = plugin.getResource(resource)) {
+                if (stream == null) continue;
             var manifest = new YamlConfiguration();
             manifest.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
             migrate(plugin.getDataFolder().toPath(), manifest);
         } catch (Exception error) {
             throw new IllegalStateException("Не удалось обновить оформление " + plugin.getName()
                     + "; исходные файлы сохранены", error);
+        }
         }
     }
 
@@ -47,7 +49,12 @@ public final class GuiStyles {
             }
             String key = Objects.toString(update.get("path"), "");
             if (key.isBlank()) throw new IOException("Пустой путь настройки оформления");
-            documents.get(path).set(key, update.get("value"));
+            var document = documents.get(path);
+            // Follow-up manifests can upgrade shipped defaults while retaining an admin's edits.
+            if (Boolean.TRUE.equals(update.get("preserve-custom"))
+                    && document.contains(key)
+                    && !Objects.equals(document.get(key), update.get("before"))) continue;
+            document.set(key, update.get("value"));
         }
         Files.createDirectories(root);
         Map<Path, Path> staged = new LinkedHashMap<>();
