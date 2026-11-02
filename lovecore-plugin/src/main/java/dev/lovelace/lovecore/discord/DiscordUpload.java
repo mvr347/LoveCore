@@ -16,6 +16,16 @@ final class DiscordUpload {
         || image.length > 700000
         || !Set.of("image/png", "image/jpeg", "image/webp").contains(mime))
       throw new IllegalArgumentException("Invalid image upload");
+    return build(content, filename, mime, image);
+  }
+
+  static Body file(String content, String filename, byte[] data) {
+    if (data == null || data.length == 0 || data.length > 7_000_000)
+      throw new IllegalArgumentException("Invalid file upload");
+    return build(content, filename, "application/octet-stream", data);
+  }
+
+  private static Body build(String content, String filename, String mime, byte[] image) {
     String name = filename == null ? "evidence" : filename.replaceAll("[^\\p{L}0-9._-]", "_");
     if (name.isBlank()) name = "evidence";
     if (name.length() > 100) name = name.substring(0, 100);
@@ -35,7 +45,9 @@ final class DiscordUpload {
     out.writeBytes(
         ("--"
                 + boundary
-                + "\r\nContent-Disposition: form-data; name=\"payload_json\"\r\nContent-Type: application/json\r\n\r\n"
+                + "\r\n"
+                + "Content-Disposition: form-data; name=\"payload_json\"\r\n"
+                + "Content-Type: application/json\r\n\r\n"
                 + json
                 + "\r\n--"
                 + boundary

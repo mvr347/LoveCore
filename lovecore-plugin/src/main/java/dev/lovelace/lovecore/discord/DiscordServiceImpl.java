@@ -332,6 +332,16 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             if(response==null||response.statusCode()<200||response.statusCode()>=300)return null;return JsonParser.parseString(response.body()).getAsJsonObject().get("id").getAsString();
         });
     }
+    public CompletableFuture<String> sendDirectAttachment(String user,String filename,byte[] data) {
+        var upload=DiscordUpload.file("Вложение из вашего обращения",filename,data);
+        return createDmChannel(user).thenCompose(channel->{
+            if(channel==null)return CompletableFuture.completedFuture(null);
+            return request("POST","/channels/"+channel+"/messages",upload.contentType(),HttpRequest.BodyPublishers.ofByteArray(upload.bytes())).thenApply(response->{
+                if(response==null||response.statusCode()>=300)return null;
+                return JsonParser.parseString(response.body()).getAsJsonObject().get("id").getAsString();
+            });
+        });
+    }
     public CompletableFuture<String> editDirectMessage(String user, String message, String json) { return createDmChannel(user).thenCompose(channel -> channel == null ? CompletableFuture.completedFuture(null) : sendMessage(channel, json, message)); }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
     static String ticketKey(TicketType type,String id){return type.name()+":"+id;}
