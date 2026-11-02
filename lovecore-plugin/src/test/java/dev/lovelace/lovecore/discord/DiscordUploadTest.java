@@ -21,4 +21,16 @@ class DiscordUploadTest {
     assertTrue(text.contains("files[0]"));
     assertTrue(body.contentType().startsWith("multipart/form-data; boundary="));
   }
+
+  @org.junit.jupiter.api.Test
+  void archivedFilesAreBoundedAndCannotInjectMultipartHeaders() {
+    var body = DiscordUpload.file("Архив", "proof\r\nInjected: bad.txt", new byte[] {1, 2, 3});
+    var encoded = new String(body.bytes(), java.nio.charset.StandardCharsets.UTF_8);
+    org.junit.jupiter.api.Assertions.assertTrue(encoded.contains("application/octet-stream"));
+    org.junit.jupiter.api.Assertions.assertFalse(encoded.contains("proof\r\nInjected"));
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalArgumentException.class, () -> DiscordUpload.file("", "x", new byte[0]));
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalArgumentException.class, () -> DiscordUpload.file("", "x", new byte[7_000_001]));
+  }
 }

@@ -66,6 +66,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     private final List<dev.lovelace.lovecore.api.discord.TicketMessageListenerV2> listenersV2 = new CopyOnWriteArrayList<>();
     private final List<dev.lovelace.lovecore.api.discord.DiscordInteractionListener> interactions = new CopyOnWriteArrayList<>();
     private final InteractionOwnership ownership = new InteractionOwnership();
+    private PrivateMenuHub privateMenus;
 
     // Blocking HTTP calls (including the 3 s sleep in closeTicketChannel) run on virtual threads instead of
     // ForkJoinPool.commonPool(), which is shared by every plugin on the JVM and would be starved by them.
@@ -80,7 +81,27 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                 .build();
     }
 
+    public synchronized boolean adoptAuthBot(String token, String guild, String support, String appeals) {
+        if (isEnabled()) return true;
+        if (token == null || token.isBlank() || !plugin.getConfig().getString("discord.bot-token", "").isBlank()) return false;
+        try {
+            var file = plugin.getDataFolder().toPath().resolve("config.yml");
+            var backup = file.resolveSibling("config.yml.pre-shared-discord.bak");
+            if (java.nio.file.Files.exists(file) && !java.nio.file.Files.exists(backup)) java.nio.file.Files.copy(file, backup);
+            plugin.getConfig().set("discord.enabled", true);
+            plugin.getConfig().set("discord.bot-token", token);
+            plugin.getConfig().set("discord.guild-id", guild);
+            plugin.getConfig().set("discord.support-category-id", support);
+            plugin.getConfig().set("discord.appeals-category-id", appeals);
+            plugin.saveConfig(); load(); return isEnabled();
+        } catch (Exception error) { plugin.getLogger().warning("Не удалось перенести настройки общего Discord-бота"); return false; }
+    }
+
     public void load() {
+        if (privateMenus == null) {
+            try { java.nio.file.Files.createDirectories(plugin.getDataFolder().toPath()); privateMenus = new PrivateMenuHub(plugin.getDataFolder().toPath().resolve("discord-menus.db")); }
+            catch (Exception e) { throw new IllegalStateException("Не открыты личные меню Discord", e); }
+        }
         if(gateway!=null){gateway.close();gateway=null;}
         if(pollingTask!=null){pollingTask.cancel();pollingTask=null;}
         ConfigurationSection sec = plugin.getConfig().getConfigurationSection("discord");
@@ -106,6 +127,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             plugin.getLogger().info("✓ LoveCore DiscordService активирован (Guild ID: " + guildId + ")");
             startMessagePolling();
             if(gateway!=null)gateway.close();
+            claimInteractionPrefix("lc:menu:");
+            registerCommand("меню", "Личный кабинет: аккаунт и обращения", Map.of());
             gateway=new DiscordGateway(httpClient,botToken,this::onInteraction);
             gateway.start();
         } else {
@@ -221,7 +244,41 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     @Override public void unregisterTicketMessageListenerV2(dev.lovelace.lovecore.api.discord.TicketMessageListenerV2 listener){listenersV2.remove(listener);}
     @Override public void registerInteractionListener(dev.lovelace.lovecore.api.discord.DiscordInteractionListener listener){interactions.add(listener);}
     @Override public void unregisterInteractionListener(dev.lovelace.lovecore.api.discord.DiscordInteractionListener listener){interactions.remove(listener);}
+    public void registerPrivateMenu(String id, String label, java.util.function.Function<String,Map<String,Object>> render) { privateMenus.register(id,label,render); }
+    public void registerPrivateMenu(String id, String label, java.util.function.Predicate<String> visible, java.util.function.Function<String,Map<String,Object>> render) { privateMenus.register(id,label,visible,render); }
+    public void unregisterPrivateMenu(String id) { privateMenus.unregister(id); }
+    public CompletableFuture<Boolean> openPrivateMenu(String user, String section) {
+        if (!isEnabled() || privateMenus == null) return CompletableFuture.completedFuture(false);
+        if (!privateMenus.begin(user)) return CompletableFuture.completedFuture(true);
+        return httpExecutor.supply(() -> { var card=new java.util.LinkedHashMap<>(privateMenus.render(user, section));card.put("nonce",cap("menu:"+user,25));card.put("enforce_nonce",true);return gson.toJson(card); }).thenCompose(json ->
+            createDmChannel(user).thenCompose(channel -> {
+                if (channel == null) return CompletableFuture.completedFuture(false);
+                PrivateMenuHub.Message old;
+                try { old = privateMenus.get(user); } catch (java.sql.SQLException e) { return CompletableFuture.failedFuture(e); }
+                String previous = old != null && channel.equals(old.channel()) ? old.id() : null;
+                return updateMenuMessage(channel,json,previous)
+                    .thenApply(message -> { if(message==null)return false;
+                        try { privateMenus.save(user,channel,message); } catch(java.sql.SQLException e){throw new java.util.concurrent.CompletionException(e);} return true; });
+            })).whenComplete((ok,error)->privateMenus.end(user));
+    }
+    // Recreate only after a confirmed deletion, never after a timeout or a rate limit.
+    private CompletableFuture<String> updateMenuMessage(String channel,String json,String previous) {
+        if(previous==null)return sendMessage(channel,json,null);
+        return request("PATCH","/channels/"+channel+"/messages/"+previous,json).thenCompose(response->{
+            if(response==null)return CompletableFuture.completedFuture(null);
+            if(response.statusCode()==404)return sendMessage(channel,json,null);
+            return CompletableFuture.completedFuture(response.statusCode()<300?previous:null);
+        });
+    }
     private void onInteraction(dev.lovelace.lovecore.api.discord.DiscordInteraction interaction) {
+        if (interaction.name().equals("меню") || interaction.name().startsWith("lc:menu:")) {
+            boolean component=interaction.name().startsWith("lc:menu:");
+            String section=component?interaction.name().substring("lc:menu:".length()):"home";
+            respond(interaction,component ? "{\"type\":6}" : "{\"type\":4,\"data\":{\"content\":\"Меню отправлено в личные сообщения.\",\"flags\":64}}")
+                .thenCompose(ok -> ok ? openPrivateMenu(interaction.userId(),section) : CompletableFuture.completedFuture(false))
+                .thenAccept(ok -> { if(!ok) editResponse(interaction,"Не удалось открыть личное меню. Разрешите сообщения от бота и повторите."); });
+            return;
+        }
         for(var listener:interactions)try{if(listener.onInteraction(interaction))return;}catch(RuntimeException e){plugin.getLogger().warning("Ошибка обработчика Discord");}
         // Not ours: another gateway on the same token (LoveAuth) answers it, and a second answer would break it.
         if(!ownership.owns(interaction.type(),interaction.name()))return;
@@ -232,10 +289,11 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         ownership.addCommand(name);
         JsonObject body=new JsonObject();body.addProperty("name",name);body.addProperty("description",description);
         JsonArray opts=new JsonArray();options.forEach((key,value)->{JsonObject o=new JsonObject();o.addProperty("type",3);o.addProperty("name",key);o.addProperty("description",value);o.addProperty("required",false);opts.add(o);});body.add("options",opts);
+        if(name.equals("меню")) { JsonArray contexts=new JsonArray(); contexts.add(0); contexts.add(1); body.add("contexts",contexts); }
         return request("GET","/users/@me",null).thenCompose(resp->{
             if(resp==null||resp.statusCode()!=200)return CompletableFuture.completedFuture(false);
             String app=JsonParser.parseString(resp.body()).getAsJsonObject().get("id").getAsString();
-            return sendPostRequest("/applications/"+app+"/guilds/"+guildId+"/commands",body.toString()).thenApply(r->r!=null&&r.statusCode()<300);
+            return sendPostRequest("/applications/"+app+(name.equals("меню")?"/commands":"/guilds/"+guildId+"/commands"),body.toString()).thenApply(r->r!=null&&r.statusCode()<300);
         });
     }
     @Override public CompletableFuture<Boolean> unregisterCommand(String name) {
@@ -274,6 +332,17 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             if(response==null||response.statusCode()<200||response.statusCode()>=300)return null;return JsonParser.parseString(response.body()).getAsJsonObject().get("id").getAsString();
         });
     }
+    public CompletableFuture<String> sendDirectAttachment(String user,String filename,byte[] data) {
+        var upload=DiscordUpload.file("Вложение из вашего обращения",filename,data);
+        return createDmChannel(user).thenCompose(channel->{
+            if(channel==null)return CompletableFuture.completedFuture(null);
+            return request("POST","/channels/"+channel+"/messages",upload.contentType(),HttpRequest.BodyPublishers.ofByteArray(upload.bytes())).thenApply(response->{
+                if(response==null||response.statusCode()>=300)return null;
+                return JsonParser.parseString(response.body()).getAsJsonObject().get("id").getAsString();
+            });
+        });
+    }
+    public CompletableFuture<String> editDirectMessage(String user, String message, String json) { return createDmChannel(user).thenCompose(channel -> channel == null ? CompletableFuture.completedFuture(null) : sendMessage(channel, json, message)); }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
     static String ticketKey(TicketType type,String id){return type.name()+":"+id;}
     @Override public void restoreTicket(String id,String channel){activeTickets.put(id.contains(":")?id:ticketKey(TicketType.BAN_APPEAL,id),channel);}
@@ -1049,6 +1118,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         messageListeners.clear();listenersV2.clear();interactions.clear();
         creatingTickets.values().forEach(f->f.cancel(true));creatingTickets.clear();
         httpExecutor.stop(Duration.ofSeconds(2));httpClient.shutdownNow();
+        try { if(privateMenus!=null)privateMenus.close(); } catch (java.sql.SQLException e) { plugin.getLogger().warning("Ошибка закрытия личного меню"); }
     }
 
     private synchronized void saveStoredLinks() {
