@@ -89,7 +89,7 @@ final class PrivateMenuHub implements AutoCloseable {
   }
 
   static Map<String, Object> button(String id, String label) {
-    return Map.of("type", 2, "style", 2, "custom_id", id, "label", label);
+    return Map.of("type", 2, "style", id.equals("lc:menu:home") ? 2 : 1, "custom_id", id, "label", label);
   }
 
   static Map<String, Object> row(Map<String, Object> button) {
