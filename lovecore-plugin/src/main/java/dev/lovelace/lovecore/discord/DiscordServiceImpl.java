@@ -541,6 +541,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     }
     try {
       recoverManagedTicket(managed)
+          .exceptionallyCompose(error -> CompletableFuture.<String>failedFuture(
+              new java.util.concurrent.RejectedExecutionException("Не удалось проверить каналы обращения; новый канал не создавался",error)))
           .thenCompose(
               found ->
                   found == null
