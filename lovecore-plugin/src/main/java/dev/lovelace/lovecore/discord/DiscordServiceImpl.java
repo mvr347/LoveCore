@@ -901,7 +901,11 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
   private CompletableFuture<Integer> purgePage(
       String channel, String bot, String before, int deleted, int pages) {
-    if (pages >= 500) return CompletableFuture.completedFuture(deleted);
+    // Safety limit on history depth: report it instead of pretending the channel is clean.
+    if (pages >= 500)
+      return CompletableFuture.failedFuture(
+          new IllegalStateException(
+              "Достигнут предел просмотра (50000 сообщений); удалено " + deleted + ", очистка неполная"));
     return request(
             "GET",
             "/channels/" + channel + "/messages?limit=100" + (before == null ? "" : "&before=" + before),
