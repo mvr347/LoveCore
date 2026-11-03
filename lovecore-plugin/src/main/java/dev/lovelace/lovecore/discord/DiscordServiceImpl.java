@@ -67,6 +67,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     private final List<dev.lovelace.lovecore.api.discord.DiscordInteractionListener> interactions = new CopyOnWriteArrayList<>();
     private final InteractionOwnership ownership = new InteractionOwnership();
     private PrivateMenuHub privateMenus;
+    private DiscordStateStore discordState;
 
     // Blocking HTTP calls (including the 3 s sleep in closeTicketChannel) run on virtual threads instead of
     // ForkJoinPool.commonPool(), which is shared by every plugin on the JVM and would be starved by them.
@@ -102,6 +103,13 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             try { java.nio.file.Files.createDirectories(plugin.getDataFolder().toPath()); privateMenus = new PrivateMenuHub(plugin.getDataFolder().toPath().resolve("discord-menus.db")); }
             catch (Exception e) { throw new IllegalStateException("Не открыты личные меню Discord", e); }
         }
+        if(discordState==null) {
+            try {
+                var root=plugin.getDataFolder().toPath();discordState=new DiscordStateStore(root.resolve("discord-state.db"));
+                discordState.migrate(root.resolve("discord-data.yml"));discordState.migrate(root.resolve("discord-tickets.yml"));
+                discordState.migrate(root.resolveSibling("LoveWebAdmin").resolve("discord-data.yml"));
+            }catch(Exception error){if(discordState!=null)try{discordState.close();}catch(Exception close){error.addSuppressed(close);}discordState=null;enabled=false;plugin.getLogger().log(java.util.logging.Level.SEVERE,"Discord отключён: не перенесены данные в SQLite; исходные файлы сохранены",error);return;}
+        }
         if(gateway!=null){gateway.close();gateway=null;}
         if(pollingTask!=null){pollingTask.cancel();pollingTask=null;}
         ConfigurationSection sec = plugin.getConfig().getConfigurationSection("discord");
@@ -114,14 +122,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         this.appealsLogChannelId = sec != null ? sec.getString("appeals-log-channel-id", "").trim() : "";
 
         loadStoredLinks();
-        File tickets=new File(plugin.getDataFolder(),"discord-tickets.yml");
-        if(tickets.exists()) {
-            var saved=YamlConfiguration.loadConfiguration(tickets);
-            var ticketSection=saved.getConfigurationSection("tickets");
-            if(ticketSection!=null)for(String id:ticketSection.getKeys(false))if(id.contains(":"))activeTickets.put(id,ticketSection.getString(id));
-            var section=saved.getConfigurationSection("cursors");
-            if(section!=null)for(String channel:section.getKeys(false))channelLastMessageId.put(channel,section.getString(channel));
-        }
+        try {activeTickets.clear();activeTickets.putAll(discordState.tickets());channelLastMessageId.clear();channelLastMessageId.putAll(discordState.cursors());}
+        catch(java.sql.SQLException error){throw new IllegalStateException("Не загружены тикеты Discord",error);}
 
         if (enabled && !botToken.isBlank()) {
             plugin.getLogger().info("✓ LoveCore DiscordService активирован (Guild ID: " + guildId + ")");
@@ -183,10 +185,11 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
     @Override
     public synchronized void unlink(UUID playerUuid) {
+        try {if(discordState==null)throw new IllegalStateException("Discord SQLite недоступна");discordState.unlink(playerUuid);}catch(java.sql.SQLException error){throw new IllegalStateException("Привязка не снята в SQLite",error);}
         String discordId = playerToDiscord.remove(playerUuid);
         if (discordId != null) {
             discordToPlayer.remove(discordId);
-            saveStoredLinks();
+
         }
     }
 
@@ -197,11 +200,12 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             unlink(playerUuid);
             return;
         }
+        try {if(discordState==null)throw new IllegalStateException("Discord SQLite недоступна");discordState.setLink(playerUuid,discordId);}catch(java.sql.SQLException error){throw new IllegalStateException("Привязка не сохранена в SQLite",error);}
         String old=playerToDiscord.remove(playerUuid);if(old!=null)discordToPlayer.remove(old);
         UUID previous=discordToPlayer.remove(discordId);if(previous!=null)playerToDiscord.remove(previous);
         playerToDiscord.put(playerUuid, discordId);
         discordToPlayer.put(discordId, playerUuid);
-        saveStoredLinks();
+
     }
 
     @Override
@@ -249,7 +253,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     public void unregisterPrivateMenu(String id) { privateMenus.unregister(id); }
     public CompletableFuture<Boolean> openPrivateMenu(String user, String section) {
         if (!isEnabled() || privateMenus == null) return CompletableFuture.completedFuture(false);
-        if (!privateMenus.begin(user)) return CompletableFuture.completedFuture(true);
+        if (!privateMenus.begin(user)) return CompletableFuture.completedFuture(false);
         return httpExecutor.supply(() -> { var card=new java.util.LinkedHashMap<>(privateMenus.render(user, section));card.put("nonce",cap("menu:"+user,25));card.put("enforce_nonce",true);return gson.toJson(card); }).thenCompose(json ->
             createDmChannel(user).thenCompose(channel -> {
                 if (channel == null) return CompletableFuture.completedFuture(false);
@@ -342,10 +346,18 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             });
         });
     }
+    public CompletableFuture<Boolean> deleteDirectMessage(String user,String message) {
+        if(message==null||!message.matches("[0-9]{5,25}"))return CompletableFuture.completedFuture(false);
+        return createDmChannel(user).thenCompose(channel->channel==null?CompletableFuture.completedFuture(false):request("DELETE","/channels/"+channel+"/messages/"+message,null).thenApply(response->response!=null&&(response.statusCode()==204||response.statusCode()==404)));
+    }
     public CompletableFuture<String> editDirectMessage(String user, String message, String json) { return createDmChannel(user).thenCompose(channel -> channel == null ? CompletableFuture.completedFuture(null) : sendMessage(channel, json, message)); }
     @Override public CompletableFuture<String> directMessage(String user,String json){return createDmChannel(user).thenCompose(c->c==null?CompletableFuture.completedFuture(null):sendMessage(c,json,null));}
     static String ticketKey(TicketType type,String id){return type.name()+":"+id;}
-    @Override public void restoreTicket(String id,String channel){activeTickets.put(id.contains(":")?id:ticketKey(TicketType.BAN_APPEAL,id),channel);}
+    @Override public synchronized void restoreTicket(String id,String channel){
+        String key=id.contains(":")?id:ticketKey(TicketType.BAN_APPEAL,id);
+        try {if(discordState==null)throw new IllegalStateException("Discord SQLite недоступна");discordState.ticket(key,channel);activeTickets.put(key,channel);}
+        catch(java.sql.SQLException error){throw new IllegalStateException("Не сохранён тикет Discord",error);}
+    }
 
     @Override
     public CompletableFuture<String> createTicketChannel(TicketType type, String ticketId, String playerName, String initialReason) {
@@ -412,11 +424,21 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             payload.addProperty("parent_id", category);
         }
 
-    return request("GET", "/users/@me", null)
+    CompletableFuture<Void> checkedCategory;
+    if (category == null || category.isBlank()) checkedCategory = CompletableFuture.completedFuture(null);
+    else checkedCategory = request("GET", "/channels/" + category, null).thenAccept(response -> {
+      if (response == null || response.statusCode() != 200) {
+        if (response != null && java.util.Set.of(400,401,403,404,413,422,429).contains(response.statusCode()))
+          throw new dev.lovelace.lovecore.api.discord.DiscordRequestRejectedException(response.statusCode());
+        throw new java.util.concurrent.RejectedExecutionException("Категория тикетов не проверена; канал не создавался");
+      }
+      TicketCategory.validate(JsonParser.parseString(response.body()).getAsJsonObject(), guildId);
+    });
+    return checkedCategory.thenCompose(ignored -> request("GET", "/users/@me", null))
         .thenCompose(
             identity -> {
               if (identity == null || identity.statusCode() != 200)
-                return CompletableFuture.<HttpResponse<String>>completedFuture(null);
+                throw new java.util.concurrent.RejectedExecutionException("Проверка бота не завершена; канал не создавался");
               String bot =
                   JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
               permissions.add(overwrite(bot, 1, "117776", "0"));
@@ -424,18 +446,10 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             })
         .thenApply(
             resp -> {
-              if (resp == null || resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                plugin
-                    .getLogger()
-                    .warning(
-                        "Не удалось создать тикет-канал Discord: "
-                            + (resp != null ? resp.body() : "null"));
-                return null;
-              }
+              if (resp == null) throw new IllegalStateException("Создание канала Discord не подтверждено");
               try {
-                JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
-                String channelId = json.get("id").getAsString();
-                activeTickets.put(ticketKey(type, ticketId), channelId);
+                String channelId = DiscordMessageResult.id(resp.statusCode(), resp.body());
+                activeTickets.put(ticketKey(type, ticketId), channelId);saveCursors();
                 saveCursors();
 
                 // Отправляем вступительное сообщение
@@ -469,6 +483,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                     intro);
 
                 return channelId;
+              } catch (dev.lovelace.lovecore.api.discord.DiscordRequestRejectedException e) {
+                throw e;
               } catch (Exception e) {
                 plugin
                     .getLogger()
@@ -525,6 +541,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     }
     try {
       recoverManagedTicket(managed)
+          .exceptionallyCompose(error -> CompletableFuture.<String>failedFuture(
+              new java.util.concurrent.RejectedExecutionException("Не удалось проверить каналы обращения; новый канал не создавался",error)))
           .thenCompose(
               found ->
                   found == null
@@ -570,7 +588,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                   found = item.getAsJsonObject().get("id").getAsString();
                 }
               if (found != null) {
-                activeTickets.putIfAbsent(key, found);
+                activeTickets.putIfAbsent(key, found);saveCursors();
                 saveCursors();
                 return activeTickets.get(key);
               }
@@ -1043,8 +1061,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     }
 
     private synchronized void saveCursors() {
-        var yaml=new YamlConfiguration();activeTickets.forEach((key,value)->yaml.set("tickets."+key,value));channelLastMessageId.forEach((key,value)->yaml.set("cursors."+key,value));
-        try{yaml.save(new File(plugin.getDataFolder(),"discord-tickets.yml"));}catch(IOException e){plugin.getLogger().warning("Не сохранены позиции сообщений Discord");}
+        try {if(discordState!=null)discordState.routing(Map.copyOf(activeTickets),Map.copyOf(channelLastMessageId));}
+        catch(java.sql.SQLException error){plugin.getLogger().warning("Не сохранены позиции сообщений Discord в SQLite");}
     }
 
     private void pollChannelMessages(String ticketId, String channelId) {
@@ -1090,23 +1108,10 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     }
 
     private synchronized void loadStoredLinks() {
-        File file = new File(plugin.getDataFolder(), "discord-data.yml");
-        playerToDiscord.clear();discordToPlayer.clear();
-        if (!file.exists()) return;
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-        ConfigurationSection sec = yaml.getConfigurationSection("links");
-        if (sec != null) {
-            for (String key : sec.getKeys(false)) {
-                try {
-                    UUID uuid = UUID.fromString(key);
-                    String discordId = sec.getString(key);
-                    if (discordId != null && !discordId.isBlank()) {
-                        playerToDiscord.put(uuid, discordId);
-                        discordToPlayer.put(discordId, uuid);
-                    }
-                } catch (IllegalArgumentException ignored) {}
-            }
-        }
+        try {
+            var links=discordState.links();playerToDiscord.clear();discordToPlayer.clear();
+            links.forEach((uuid,discord)->{playerToDiscord.put(UUID.fromString(uuid),discord);discordToPlayer.put(discord,UUID.fromString(uuid));});
+        }catch(java.sql.SQLException error){throw new IllegalStateException("Не загружены привязки Discord",error);}
     }
 
     public void shutdown(){close();}
@@ -1118,19 +1123,9 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
         messageListeners.clear();listenersV2.clear();interactions.clear();
         creatingTickets.values().forEach(f->f.cancel(true));creatingTickets.clear();
         httpExecutor.stop(Duration.ofSeconds(2));httpClient.shutdownNow();
+        saveCursors();
+        try{if(discordState!=null)discordState.close();}catch(java.sql.SQLException error){plugin.getLogger().warning("Не закрыта SQLite Discord");}
         try { if(privateMenus!=null)privateMenus.close(); } catch (java.sql.SQLException e) { plugin.getLogger().warning("Ошибка закрытия личного меню"); }
     }
 
-    private synchronized void saveStoredLinks() {
-        File file = new File(plugin.getDataFolder(), "discord-data.yml");
-        YamlConfiguration yaml = new YamlConfiguration();
-        for (Map.Entry<UUID, String> entry : playerToDiscord.entrySet()) {
-            yaml.set("links." + entry.getKey().toString(), entry.getValue());
-        }
-        try {
-            yaml.save(file);
-        } catch (IOException e) {
-            plugin.getLogger().warning("Не удалось сохранить discord-data.yml: " + e.getMessage());
-        }
-    }
 }
