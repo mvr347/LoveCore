@@ -253,7 +253,7 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
     public void unregisterPrivateMenu(String id) { privateMenus.unregister(id); }
     public CompletableFuture<Boolean> openPrivateMenu(String user, String section) {
         if (!isEnabled() || privateMenus == null) return CompletableFuture.completedFuture(false);
-        if (!privateMenus.begin(user)) return CompletableFuture.completedFuture(true);
+        if (!privateMenus.begin(user)) return CompletableFuture.completedFuture(false);
         return httpExecutor.supply(() -> { var card=new java.util.LinkedHashMap<>(privateMenus.render(user, section));card.put("nonce",cap("menu:"+user,25));card.put("enforce_nonce",true);return gson.toJson(card); }).thenCompose(json ->
             createDmChannel(user).thenCompose(channel -> {
                 if (channel == null) return CompletableFuture.completedFuture(false);
@@ -424,11 +424,21 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             payload.addProperty("parent_id", category);
         }
 
-    return request("GET", "/users/@me", null)
+    CompletableFuture<Void> checkedCategory;
+    if (category == null || category.isBlank()) checkedCategory = CompletableFuture.completedFuture(null);
+    else checkedCategory = request("GET", "/channels/" + category, null).thenAccept(response -> {
+      if (response == null || response.statusCode() != 200) {
+        if (response != null && java.util.Set.of(400,401,403,404,413,422,429).contains(response.statusCode()))
+          throw new dev.lovelace.lovecore.api.discord.DiscordRequestRejectedException(response.statusCode());
+        throw new java.util.concurrent.RejectedExecutionException("Категория тикетов не проверена; канал не создавался");
+      }
+      TicketCategory.validate(JsonParser.parseString(response.body()).getAsJsonObject(), guildId);
+    });
+    return checkedCategory.thenCompose(ignored -> request("GET", "/users/@me", null))
         .thenCompose(
             identity -> {
               if (identity == null || identity.statusCode() != 200)
-                return CompletableFuture.<HttpResponse<String>>completedFuture(null);
+                throw new java.util.concurrent.RejectedExecutionException("Проверка бота не завершена; канал не создавался");
               String bot =
                   JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
               permissions.add(overwrite(bot, 1, "117776", "0"));
@@ -436,17 +446,9 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             })
         .thenApply(
             resp -> {
-              if (resp == null || resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                plugin
-                    .getLogger()
-                    .warning(
-                        "Не удалось создать тикет-канал Discord: "
-                            + (resp != null ? resp.body() : "null"));
-                return null;
-              }
+              if (resp == null) throw new IllegalStateException("Создание канала Discord не подтверждено");
               try {
-                JsonObject json = JsonParser.parseString(resp.body()).getAsJsonObject();
-                String channelId = json.get("id").getAsString();
+                String channelId = DiscordMessageResult.id(resp.statusCode(), resp.body());
                 activeTickets.put(ticketKey(type, ticketId), channelId);saveCursors();
                 saveCursors();
 
@@ -481,6 +483,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
                     intro);
 
                 return channelId;
+              } catch (dev.lovelace.lovecore.api.discord.DiscordRequestRejectedException e) {
+                throw e;
               } catch (Exception e) {
                 plugin
                     .getLogger()

@@ -71,7 +71,19 @@ final class PrivateMenuHub implements AutoCloseable {
     var buttons =
         sections.entrySet().stream()
             .filter(e -> e.getValue().visible.test(owner))
-            .sorted(Map.Entry.comparingByKey())
+            .sorted(
+                Comparator.<Map.Entry<String, Section>>comparingInt(
+                        e ->
+                            switch (e.getKey()) {
+                              case "account" -> 0;
+                              case "security" -> 1;
+                              case "appeals" -> 2;
+                              case "newcase" -> 3;
+                              case "penalties" -> 4;
+                              case "staffcases" -> 5;
+                              default -> 10;
+                            })
+                    .thenComparing(Map.Entry::getKey))
             .limit(25)
             .map(e -> button("lc:menu:" + e.getKey(), e.getValue().label))
             .toList();
@@ -81,7 +93,22 @@ final class PrivateMenuHub implements AutoCloseable {
           Map.of("type", 1, "components", buttons.subList(i, Math.min(i + 5, buttons.size()))));
     return Map.of(
         "content",
-        "**Личный кабинет**\nАккаунт, безопасность и обращения — выберите раздел.",
+        "",
+        "embeds",
+        List.of(
+            Map.of(
+                "title",
+                "Личный кабинет",
+                "description",
+                "**Аккаунт и безопасность**\n"
+                    + "Привязка, подтверждение входа и защита аккаунта.\n\n"
+                    + "**Обращения и наказания**\n"
+                    + "Подать жалобу, обжаловать наказание или ответить сотруднику.\n\n"
+                    + "Выберите раздел кнопками ниже.",
+                "color",
+                0x5865F2,
+                "footer",
+                Map.of("text", "Личные данные видны только вам"))),
         "components",
         rows,
         "allowed_mentions",
@@ -89,7 +116,8 @@ final class PrivateMenuHub implements AutoCloseable {
   }
 
   static Map<String, Object> button(String id, String label) {
-    return Map.of("type", 2, "style", id.equals("lc:menu:home") ? 2 : 1, "custom_id", id, "label", label);
+    return Map.of(
+        "type", 2, "style", id.equals("lc:menu:home") ? 2 : 1, "custom_id", id, "label", label);
   }
 
   static Map<String, Object> row(Map<String, Object> button) {
