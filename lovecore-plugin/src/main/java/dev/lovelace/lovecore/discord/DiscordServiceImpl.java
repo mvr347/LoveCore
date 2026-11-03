@@ -927,36 +927,44 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
             });
   }
 
-  /** Bulk delete needs 2-100 messages younger than 14 days; everything else goes one by one. */
+  /**
+   * Bulk delete needs 2-100 messages younger than 14 days and a guild channel with
+   * MANAGE_MESSAGES; when Discord refuses it (direct messages, missing permission) the same
+   * messages are deleted one by one. An unconfirmed single deletion fails the purge instead of
+   * being counted, so a caller never mistakes a partial cleanup for a complete one.
+   */
   private CompletableFuture<Integer> deleteOwn(String channel, List<String> fresh, List<String> old) {
+    if (fresh.size() < 2) return deleteOneByOne(channel, concat(fresh, old));
+    JsonObject payload = new JsonObject();
+    JsonArray ids = new JsonArray();
+    fresh.forEach(ids::add);
+    payload.add("messages", ids);
+    return request("POST", "/channels/" + channel + "/messages/bulk-delete", payload.toString())
+        .thenCompose(
+            response -> {
+              if (response != null && response.statusCode() == 204)
+                return deleteOneByOne(channel, old).thenApply(count -> count + fresh.size());
+              return deleteOneByOne(channel, concat(fresh, old));
+            });
+  }
+
+  private CompletableFuture<Integer> deleteOneByOne(String channel, List<String> ids) {
     CompletableFuture<Integer> chain = CompletableFuture.completedFuture(0);
-    if (fresh.size() >= 2) {
-      JsonObject payload = new JsonObject();
-      JsonArray ids = new JsonArray();
-      fresh.forEach(ids::add);
-      payload.add("messages", ids);
-      int count = fresh.size();
-      chain =
-          request("POST", "/channels/" + channel + "/messages/bulk-delete", payload.toString())
-              .thenApply(
-                  response -> {
-                    if (response == null || response.statusCode() != 204)
-                      throw new IllegalStateException("Массовое удаление не подтверждено");
-                    return count;
-                  });
-    } else old = concat(fresh, old);
-    for (String id : old)
+    for (String id : ids)
       chain =
           chain.thenCompose(
               total ->
                   request("DELETE", "/channels/" + channel + "/messages/" + id, null)
                       .thenApply(
-                          response ->
-                              response != null
-                                      && (response.statusCode() == 204
-                                          || response.statusCode() == 404)
-                                  ? total + 1
-                                  : total));
+                          response -> {
+                            if (response != null
+                                && (response.statusCode() == 204 || response.statusCode() == 404))
+                              return total + 1;
+                            throw new IllegalStateException(
+                                "Удаление сообщения не подтверждено ("
+                                    + (response == null ? "нет ответа" : response.statusCode())
+                                    + ")");
+                          }));
     return chain;
   }
 
