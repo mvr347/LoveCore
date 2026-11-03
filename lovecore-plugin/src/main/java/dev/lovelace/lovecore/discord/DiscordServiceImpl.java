@@ -394,7 +394,8 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
           new IllegalArgumentException("Нельзя открыть обращение для всех"));
         var type=request.type();var ticketId=request.ticketId();var playerName=request.playerName();
         var initialReason=request.reason();var ownerDiscordId=request.ownerDiscordId();
-        if (!isEnabled() || guildId.isBlank()) return CompletableFuture.completedFuture(null);
+        if (!isEnabled() || guildId.isBlank())
+            return CompletableFuture.failedFuture(new java.util.concurrent.RejectedExecutionException("Discord недоступен; канал не создавался"));
         String existing=activeTickets.get(ticketKey(type,ticketId));if(existing!=null)return CompletableFuture.completedFuture(existing);
         JsonArray permissions = new JsonArray();
         JsonObject everyone = new JsonObject();everyone.addProperty("id",guildId);everyone.addProperty("type",0);everyone.addProperty("deny","1024");permissions.add(everyone);
@@ -601,13 +602,22 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
       throw new IllegalArgumentException("Канал не является активным обращением");
   }
 
+  private static final java.util.Set<Integer> DEFINITIVE =
+      java.util.Set.of(400, 401, 403, 404, 413, 422, 429);
+
   private static void confirmed(HttpResponse<?> response, int expected) {
-    if (response == null || response.statusCode() != expected)
+    if (response != null && response.statusCode() == expected) return;
+    // A typed rejection lets callers tell "Discord said no" (e.g. 404: the channel is gone) apart
+    // from "no answer", which must stay an unknown result.
+    if (response != null && DEFINITIVE.contains(response.statusCode()))
       throw new java.util.concurrent.CompletionException(
-          new IllegalStateException(
-              "Discord не подтвердил операцию ("
-                  + (response == null ? "нет ответа" : response.statusCode())
-                  + ")"));
+          new dev.lovelace.lovecore.api.discord.DiscordRequestRejectedException(
+              response.statusCode()));
+    throw new java.util.concurrent.CompletionException(
+        new IllegalStateException(
+            "Discord не подтвердил операцию ("
+                + (response == null ? "нет ответа" : response.statusCode())
+                + ")"));
   }
 
   @Override
@@ -650,6 +660,28 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
 
   @Override
   public CompletableFuture<Boolean> setTicketReadOnly(String channel, boolean locked) {
+    return forgetIfGone(setTicketReadOnlyRequest(channel, locked), channel);
+  }
+
+  /**
+   * A channel deleted outside the bot answers 404 forever. Forget the registration so the caller
+   * sees one definitive rejection instead of an endless unknown result.
+   */
+  private <T> CompletableFuture<T> forgetIfGone(CompletableFuture<T> future, String channel) {
+    return future.whenComplete(
+        (value, error) -> {
+          for (Throwable cause = error; cause != null; cause = cause.getCause())
+            if (cause instanceof dev.lovelace.lovecore.api.discord.DiscordRequestRejectedException r
+                && r.getStatusCode() == 404) {
+              activeTickets.values().removeIf(channel::equals);
+              channelLastMessageId.remove(channel);
+              saveCursors();
+              return;
+            }
+        });
+  }
+
+  private CompletableFuture<Boolean> setTicketReadOnlyRequest(String channel, boolean locked) {
     try {
       managedChannel(channel);
     } catch (RuntimeException error) {
@@ -697,6 +729,11 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
   @Override
   public CompletableFuture<List<dev.lovelace.lovecore.api.discord.TicketMessage>> getTicketHistory(
       String channel, String before) {
+    return forgetIfGone(getTicketHistoryRequest(channel, before), channel);
+  }
+
+  private CompletableFuture<List<dev.lovelace.lovecore.api.discord.TicketMessage>>
+      getTicketHistoryRequest(String channel, String before) {
     try {
       managedChannel(channel);
       if (before != null && !before.matches("[0-9]{5,25}"))
@@ -814,6 +851,119 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
               saveCursors();
               return true;
             });
+  }
+
+  @Override
+  public boolean isTicketCreationPending(
+      dev.lovelace.lovecore.api.discord.TicketType type, String ticketId) {
+    return creatingTickets.containsKey(ticketKey(type, ticketId));
+  }
+
+  @Override
+  public CompletableFuture<List<String>> listPurgeableChannels() {
+    if (!isEnabled() || guildId.isBlank())
+      return CompletableFuture.failedFuture(new IllegalStateException("Discord недоступен"));
+    return request("GET", "/guilds/" + guildId + "/channels", null)
+        .thenApply(
+            response -> {
+              confirmed(response, 200);
+              var ids = new ArrayList<String>();
+              for (JsonElement item : JsonParser.parseString(response.body()).getAsJsonArray()) {
+                JsonObject channel = item.getAsJsonObject();
+                int type = channel.get("type").getAsInt();
+                if (type == 0 || type == 5) ids.add(channel.get("id").getAsString());
+              }
+              if (privateMenus != null)
+                try {
+                  for (String dm : privateMenus.channels()) if (!ids.contains(dm)) ids.add(dm);
+                } catch (java.sql.SQLException ignored) {
+                  // Direct-message channels are best effort; guild channels are still cleaned.
+                }
+              return ids;
+            });
+  }
+
+  @Override
+  public CompletableFuture<Integer> purgeOwnMessages(String channel) {
+    if (channel == null || !channel.matches("[0-9]{5,25}"))
+      return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid channel"));
+    return request("GET", "/users/@me", null)
+        .thenCompose(
+            identity -> {
+              confirmed(identity, 200);
+              String bot =
+                  JsonParser.parseString(identity.body()).getAsJsonObject().get("id").getAsString();
+              return purgePage(channel, bot, null, 0, 0);
+            });
+  }
+
+  private static final long DISCORD_EPOCH = 1420070400000L;
+
+  private CompletableFuture<Integer> purgePage(
+      String channel, String bot, String before, int deleted, int pages) {
+    if (pages >= 500) return CompletableFuture.completedFuture(deleted);
+    return request(
+            "GET",
+            "/channels/" + channel + "/messages?limit=100" + (before == null ? "" : "&before=" + before),
+            null)
+        .thenCompose(
+            response -> {
+              confirmed(response, 200);
+              JsonArray page = JsonParser.parseString(response.body()).getAsJsonArray();
+              if (page.isEmpty()) return CompletableFuture.completedFuture(deleted);
+              String last = page.get(page.size() - 1).getAsJsonObject().get("id").getAsString();
+              long bulkLimit = System.currentTimeMillis() - 13L * 24 * 60 * 60 * 1000;
+              var fresh = new ArrayList<String>();
+              var old = new ArrayList<String>();
+              for (JsonElement item : page) {
+                JsonObject message = item.getAsJsonObject();
+                if (!bot.equals(message.getAsJsonObject("author").get("id").getAsString())) continue;
+                String id = message.get("id").getAsString();
+                long created = (Long.parseLong(id) >> 22) + DISCORD_EPOCH;
+                (created > bulkLimit ? fresh : old).add(id);
+              }
+              return deleteOwn(channel, fresh, old)
+                  .thenCompose(count -> purgePage(channel, bot, last, deleted + count, pages + 1));
+            });
+  }
+
+  /** Bulk delete needs 2-100 messages younger than 14 days; everything else goes one by one. */
+  private CompletableFuture<Integer> deleteOwn(String channel, List<String> fresh, List<String> old) {
+    CompletableFuture<Integer> chain = CompletableFuture.completedFuture(0);
+    if (fresh.size() >= 2) {
+      JsonObject payload = new JsonObject();
+      JsonArray ids = new JsonArray();
+      fresh.forEach(ids::add);
+      payload.add("messages", ids);
+      int count = fresh.size();
+      chain =
+          request("POST", "/channels/" + channel + "/messages/bulk-delete", payload.toString())
+              .thenApply(
+                  response -> {
+                    if (response == null || response.statusCode() != 204)
+                      throw new IllegalStateException("Массовое удаление не подтверждено");
+                    return count;
+                  });
+    } else old = concat(fresh, old);
+    for (String id : old)
+      chain =
+          chain.thenCompose(
+              total ->
+                  request("DELETE", "/channels/" + channel + "/messages/" + id, null)
+                      .thenApply(
+                          response ->
+                              response != null
+                                      && (response.statusCode() == 204
+                                          || response.statusCode() == 404)
+                                  ? total + 1
+                                  : total));
+    return chain;
+  }
+
+  private static List<String> concat(List<String> first, List<String> second) {
+    var all = new ArrayList<String>(first);
+    all.addAll(second);
+    return all;
   }
 
   @Override

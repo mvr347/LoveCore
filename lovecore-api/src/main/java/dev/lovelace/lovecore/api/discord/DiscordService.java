@@ -126,6 +126,23 @@ public interface DiscordService {
         new UnsupportedOperationException("Ticket attachments unavailable"));
   }
 
+  /** True while a create request for this ticket is still in flight inside the core. */
+  default boolean isTicketCreationPending(TicketType type, String ticketId) {
+    return false;
+  }
+
+  /** Text channels of the guild plus known direct-message channels the bot may have written to. */
+  default CompletableFuture<java.util.List<String>> listPurgeableChannels() {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Channel listing unavailable"));
+  }
+
+  /** Test tool: deletes every message the bot itself wrote in the channel; returns the count. */
+  default CompletableFuture<Integer> purgeOwnMessages(String channelId) {
+    return CompletableFuture.failedFuture(
+        new UnsupportedOperationException("Message purge unavailable"));
+  }
+
   default CompletableFuture<Boolean> deleteTicketChannel(String channelId) {
     return CompletableFuture.failedFuture(
         new UnsupportedOperationException("Ticket deletion unavailable"));
