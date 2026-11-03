@@ -59,6 +59,9 @@ final class PrivateMenuHub implements AutoCloseable {
       var provider = sections.get(section);
       if (provider != null && provider.visible.test(owner)) {
         var result = new LinkedHashMap<>(provider.render.apply(owner));
+        // PATCH must clear a previous screen's embeds, including legacy text-only providers.
+        result.putIfAbsent("embeds",List.of());
+        result.putIfAbsent("content","");
         var rows = new ArrayList<Object>();
         Object controls = result.get("components");
         if (controls instanceof List<?> list) rows.addAll(list);

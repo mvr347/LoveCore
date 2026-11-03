@@ -11,6 +11,15 @@ class PrivateMenuHubTest {
   @TempDir Path directory;
 
   @Test
+  void legacyProvidersClearTheDashboardEmbedInsteadOfKeepingTwoScreens() throws Exception {
+    try(var hub=new PrivateMenuHub(directory.resolve("cards.db"))) {
+      hub.register("account","Мой аккаунт",owner->Map.of("content","Аккаунт", "components",List.of()));
+      assertFalse(((List<?>)hub.render("owner","home").get("embeds")).isEmpty());
+      assertEquals(List.of(),hub.render("owner","account").get("embeds"));
+    }
+  }
+
+  @Test
   void durableMessagePointersAreIsolatedByOwner() throws Exception {
     var file = directory.resolve("menus.db");
     try (var h = new PrivateMenuHub(file)) {
