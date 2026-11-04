@@ -136,6 +136,15 @@ final class PrivateMenuHub implements AutoCloseable {
     }
   }
 
+  synchronized List<String> channels() throws SQLException {
+    var result = new java.util.ArrayList<String>();
+    try (var q = db.createStatement();
+        var r = q.executeQuery("SELECT DISTINCT channel FROM private_menus")) {
+      while (r.next()) result.add(r.getString(1));
+    }
+    return result;
+  }
+
   synchronized void save(String owner, String channel, String message) throws SQLException {
     try (var q =
         db.prepareStatement(
