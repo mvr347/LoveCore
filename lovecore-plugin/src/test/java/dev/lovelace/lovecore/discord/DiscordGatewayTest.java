@@ -79,13 +79,17 @@ class DiscordGatewayTest {
             gateway.onText(old, "{invalid", false);
             var current = new Socket();
             gateway.onOpen(current);
-            gateway.onText(old, "old fragment", true);
-            gateway.onClose(old, 1000, "old connection");
             String payload =
                     "{\"op\":0,\"t\":\"INTERACTION_CREATE\",\"d\":{\"id\":\"1\",\"application_id\":\"2\",\"token\":\"secret\",\"type\":3,\"user\":{\"id\":\"55\"},\"data\":{\"custom_id\":\"test\"}}}";
             gateway.onText(current, payload, true);
             assertNotNull(found.get());
             assertEquals("55", found.get().userId());
+            found.set(null);
+            gateway.onText(old, payload, true);
+            assertNull(found.get(), "a valid interaction on an old socket must not be delivered");
+            gateway.onClose(old, 1000, "old connection");
+            gateway.onText(current, payload, true);
+            assertNotNull(found.get(), "the current socket remains active");
         }
     }
 
