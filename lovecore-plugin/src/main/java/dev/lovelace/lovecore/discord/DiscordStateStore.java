@@ -12,7 +12,7 @@ final class DiscordStateStore implements AutoCloseable {
 
   DiscordStateStore(Path file) throws Exception {
     Files.createDirectories(file.toAbsolutePath().getParent());
-    db = DriverManager.getConnection("jdbc:sqlite:" + file.toAbsolutePath());
+    db = org.sqlite.JDBC.createConnection("jdbc:sqlite:" + file.toAbsolutePath(), new java.util.Properties());
     try (var s = db.createStatement()) {
       s.execute("PRAGMA busy_timeout=5000");
       s.execute("PRAGMA journal_mode=WAL");

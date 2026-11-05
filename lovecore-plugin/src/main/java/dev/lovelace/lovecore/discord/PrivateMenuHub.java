@@ -20,7 +20,7 @@ final class PrivateMenuHub implements AutoCloseable {
   private final Connection db;
 
   PrivateMenuHub(Path file) throws SQLException {
-    db = DriverManager.getConnection("jdbc:sqlite:" + file);
+    db = org.sqlite.JDBC.createConnection("jdbc:sqlite:" + file, new java.util.Properties());
     try (var s = db.createStatement()) {
       s.execute("PRAGMA busy_timeout=3000");
       s.execute(
