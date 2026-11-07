@@ -984,6 +984,11 @@ public final class DiscordServiceImpl implements DiscordService, AutoCloseable {
   }
 
   @Override
+  public String getBotUserId() {
+    return BotIdentity.userIdFromToken(botToken);
+  }
+
+  @Override
   public CompletableFuture<java.util.Set<String>> getMemberRoleIds(String user) {
     if (user == null || !user.matches("[0-9]{5,25}"))
       return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid member"));
