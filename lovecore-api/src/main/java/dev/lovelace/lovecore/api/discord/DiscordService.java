@@ -95,6 +95,15 @@ public interface DiscordService {
     return "";
   }
 
+  /**
+   * Discord user id of the shared bot, or {@code null} when it is not known (Discord is off or the
+   * implementation is older). With it a plugin can link a player to the bot's profile:
+   * {@code https://discord.com/users/<id>} opens the profile with a "Message" button.
+   */
+  default String getBotUserId() {
+    return null;
+  }
+
   /** Managed cases never inherit the generic staff-role-ids access. */
   default CompletableFuture<String> createManagedTicket(ManagedTicketRequest request) {
     return CompletableFuture.failedFuture(
