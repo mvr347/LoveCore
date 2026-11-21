@@ -8,9 +8,8 @@ import java.util.Collection;
 import java.util.Optional;
 
 /**
- * Источник NPC: Citizens или LoveEssential. Плагины-потребители выбирают его строкой в конфиге
- * ({@code integrations.npc-provider}) и находят через
- * {@link dev.lovelace.lovecore.api.LoveCore#provider}.
+ * Источник NPC. В экосистеме NPC даёт только LoveEssential; плагины-потребители находят его через
+ * {@link dev.lovelace.lovecore.api.LoveCore#loveEssential}.
  *
  * <p>Клики по NPC и спавн приходят общими событиями {@link NpcClickEvent} и {@link NpcSpawnEvent}
  * независимо от провайдера.</p>

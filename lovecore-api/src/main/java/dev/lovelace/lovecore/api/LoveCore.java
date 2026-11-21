@@ -1,10 +1,7 @@
 package dev.lovelace.lovecore.api;
 
 import dev.lovelace.lovecore.api.display.DisplayPrefs;
-import dev.lovelace.lovecore.api.provider.IntegrationSettings;
 import dev.lovelace.lovecore.api.provider.Named;
-import dev.lovelace.lovecore.api.provider.ProviderChoice;
-import dev.lovelace.lovecore.api.provider.ProviderKind;
 import dev.lovelace.lovecore.api.provider.Providers;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -53,8 +50,8 @@ public final class LoveCore {
      * Реализация контракта с конкретным именем — для контрактов, у которых на сервере несколько
      * реализаций сразу ({@code NpcProvider}, {@code PresenceOracle}, {@code DownedOracle}).
      *
-     * <p>Идентификатор берётся из конфига потребителя ({@code citizens}, {@code cmi},
-     * {@code loveessential}). Пустой ответ означает, что выбранный провайдер не установлен или ещё
+     * <p>Потребителю обычно нужен {@link #loveEssential}: другие провайдеры NPC, присутствия и раненых
+     * игроков в экосистеме не поддерживаются. Пустой ответ означает, что провайдер не установлен или ещё
      * не поднялся, — потребитель говорит об этом вслух и работает без интеграции.</p>
      */
     public static <T extends Named> Optional<T> provider(Class<T> type, String providerId) {
@@ -69,19 +66,11 @@ public final class LoveCore {
     }
 
     /**
-     * Идентификатор провайдера для плагина с учётом общего выбора ядра ({@code integrations.provider}).
-     *
-     * <p>Значение {@code global} (и пустое) в конфиге плагина означает «как решило ядро»; явный идентификатор
-     * ({@code citizens}, {@code cmi}, {@code reviveme}, {@code loveessential}) побеждает общий выбор. Если
-     * ядра нет, а в конфиге плагина {@code global}, возвращается внешний провайдер — так плагин вёл себя до
-     * появления общего выбора. Результат стоит передавать в {@link #provider}; кэшировать его в поле нельзя,
-     * администратор может сменить значение через reload ядра.</p>
+     * Реализация контракта от LoveEssential — единственного провайдера NPC, присутствия игроков и раненых
+     * игроков в экосистеме. Пустой ответ означает, что LoveEssential не установлен или ещё не поднялся.
      */
-    public static String providerId(ProviderKind kind, String configured) {
-        String global = service(IntegrationSettings.class)
-                .map(IntegrationSettings::provider)
-                .orElse(ProviderChoice.GLOBAL_EXTERNAL);
-        return ProviderChoice.resolve(kind, configured, global);
+    public static <T extends Named> Optional<T> loveEssential(Class<T> type) {
+        return provider(type, Providers.LOVE_ESSENTIAL);
     }
 
     /**

@@ -67,34 +67,25 @@ softdepend: [LoveCore]
 | `TerritoryOracle` | владелец точки, враждебность | LoveClaims |
 | `ReputationOracle` | репутация 0..100 и ступень | LoveBehavior |
 | `LoveNotify` | title/actionbar/chat как независимые каналы, переключаемые игроком | свой |
-| `NpcProvider` | NPC: поиск по ключу, создание, метки, голограммы, скин; события `NpcClickEvent`, `NpcSpawnEvent` | Citizens или LoveEssential |
-| `PresenceOracle` | скрыт ли игрок, AFK, имя для показа, скин | CMI или LoveEssential |
-| `DownedOracle` | лежит ли игрок раненым, поднимают ли его | ReviveMe или LoveEssential |
+| `NpcProvider` | NPC: поиск по ключу, создание, метки, голограммы, скин; события `NpcClickEvent`, `NpcSpawnEvent` | LoveEssential |
+| `PresenceOracle` | скрыт ли игрок, AFK, имя для показа, скин | LoveEssential |
+| `DownedOracle` | лежит ли игрок раненым, поднимают ли его | LoveEssential |
 | `ReviveService` | поднять раненого извне (эликсир LoveBrew), найти раненого по сущности его тела | LoveEssential |
 | `SecretBook` | «Книга тайн»: отметить пасхалку найденной (`discover`), узнать найденные; событие `SecretDiscoveredEvent` | LoveEssential |
 | `DisplayPrefs` | личные флаги показа тега клана и суффикса: чат, TAB, ник над головой | LoveEssential |
 
-### Контракты с несколькими реализациями
+### Контракты, которые находят реализацию по имени
 
-`NpcProvider`, `PresenceOracle` и `DownedOracle` наследуют `Named`: на сервере могут жить сразу
-Citizens и LoveEssential, и какой использовать, решает конфиг каждого плагина-потребителя
-(`integrations.npc-provider: citizens|loveessential`). Нужную реализацию находит
-`LoveCore.provider(NpcProvider.class, id)`; пустой ответ значит, что выбранный провайдер не
-установлен или не поднялся. Ядро само поднимает адаптеры `citizens` (NpcProvider) и `cmi`
-(PresenceOracle); реализации `loveessential` регистрирует LoveEssential.
+`NpcProvider`, `PresenceOracle` и `DownedOracle` наследуют `Named`. 2026-11-21: единственный поддерживаемый
+провайдер этих контрактов - LoveEssential (внешние Citizens, CMI и ReviveMe больше не поддерживаются, ключ
+`integrations.provider` удалён из конфига ядра). Реализацию находит `LoveCore.loveEssential(NpcProvider.class)`;
+пустой ответ значит, что LoveEssential не установлен или ещё не поднялся.
 
 ```java
-String id = LoveCore.providerId(ProviderKind.NPC, getConfig().getString("integrations.npc-provider", "global"));
-NpcProvider npcs = LoveCore.provider(NpcProvider.class, id).orElse(null);
+NpcProvider npcs = LoveCore.loveEssential(NpcProvider.class).orElse(null);
 ```
 
-**Общий выбор для всех плагинов.** В `config.yml` ядра ключ `integrations.provider`
-(`external` по умолчанию | `loveessential`) задаёт провайдера сразу всем плагинам: внешние
-Citizens, CMI и ReviveMe либо LoveEssential. Плагин следует ему, пока в его конфиге стоит
-`global` (или ключ удалён); явное `citizens`, `cmi`, `reviveme` или `loveessential` побеждает.
-Развёртывает значение `LoveCore.providerId(ProviderKind, значение_из_конфига)`; результат не
-кэшируют, выбор меняется через `/lovecoreadmin reload`. Ключи привязки NPC у провайдеров разные,
-поэтому после смены значения NPC перепривязывают.
+Результат не кэшируют в поле: LoveEssential регистрирует реализацию после старта ядра.
 
 ### Личный показ тегов и суффиксов
 

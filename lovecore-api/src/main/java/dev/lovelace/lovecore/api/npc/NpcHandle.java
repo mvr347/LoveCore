@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Один NPC, как его видит плагин-потребитель. Скрывает, чей это NPC — Citizens или LoveEssential.
+ * Один NPC, как его видит плагин-потребитель. Скрывает внутреннее устройство NPC LoveEssential.
  * Все методы вызываются с главного потока.
  */
 public interface NpcHandle {
@@ -18,7 +18,7 @@ public interface NpcHandle {
     String providerId();
 
     /**
-     * Ключ NPC внутри провайдера. Строка, потому что у Citizens это число, а у LoveEssential — имя;
+     * Ключ NPC внутри провайдера. Строка вида {@code ext-xxxxxxxx} или имя, заданное в LoveEssential;
      * потребитель хранит ключ в конфиге или БД как текст и не гадает о его виде.
      */
     String key();
