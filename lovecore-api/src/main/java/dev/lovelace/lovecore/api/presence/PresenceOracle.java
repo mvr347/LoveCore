@@ -11,9 +11,8 @@ import java.util.UUID;
 /**
  * Присутствие игрока: скрыт ли он, отошёл ли, как его показывать и какой у него скин.
  *
- * <p>Реализации: {@code cmi} (поверх CMI) и {@code loveessential} (модули vanish, afk, nickname,
- * skin). Плагин-потребитель выбирает одну в конфиге и находит её через
- * {@link dev.lovelace.lovecore.api.LoveCore#provider}. Все методы безопасно звать с главного
+ * <p>Реализация одна: {@code loveessential} (модули vanish, afk, nickname, skin); потребитель
+ * находит её через {@link dev.lovelace.lovecore.api.LoveCore#loveEssential}. Все методы безопасно звать с главного
  * потока; для офлайн-игрока ответ пустой или {@code false}, а не исключение.</p>
  */
 public interface PresenceOracle extends Named {

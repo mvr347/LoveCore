@@ -1,16 +1,15 @@
 package dev.lovelace.lovecore.api.provider;
 
 /**
- * Контракт, у которого на сервере может быть несколько реализаций одновременно.
+ * Контракт, у которого реализация находится по имени среди зарегистрированных в {@code ServicesManager}
+ * ({@code NpcProvider}, {@code PresenceOracle}, {@code DownedOracle}).
  *
- * <p>Обычные оракулы ядра ({@code AuthOracle}, {@code TerritoryOracle}) однозначны: реализация
- * одна, побеждает старший приоритет. С NPC и присутствием игрока иначе: Citizens и LoveEssential
- * живут рядом, и какой из них использовать, решает конфиг каждого плагина-потребителя строкой
- * вроде {@code integrations.npc-provider: citizens}. Для этого каждая реализация называет себя, а
- * потребитель находит нужную через {@link dev.lovelace.lovecore.api.LoveCore#provider}.</p>
+ * <p>В экосистеме поддерживается один провайдер этих контрактов — LoveEssential
+ * ({@link Providers#LOVE_ESSENTIAL}); потребитель находит его через
+ * {@link dev.lovelace.lovecore.api.LoveCore#loveEssential}.</p>
  */
 public interface Named {
 
-    /** Стабильный идентификатор в нижнем регистре: {@code citizens}, {@code cmi}, {@code loveessential}. */
+    /** Стабильный идентификатор в нижнем регистре: {@code loveessential}. */
     String providerId();
 }

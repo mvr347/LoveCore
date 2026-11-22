@@ -9,6 +9,9 @@ import java.util.Optional;
  */
 public final class Providers {
 
+    /** Идентификатор провайдера LoveEssential — единственного поддерживаемого для NPC, присутствия и раненых. */
+    public static final String LOVE_ESSENTIAL = "loveessential";
+
     private Providers() {
     }
 

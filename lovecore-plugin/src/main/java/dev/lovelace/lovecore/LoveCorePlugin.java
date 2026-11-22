@@ -59,10 +59,7 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
     private TaxOracleImpl taxOracle;
     private dev.lovelace.lovecore.discord.DiscordServiceImpl discordService;
     private AliasRegistry aliasRegistry;
-    private dev.lovelace.lovecore.integration.IntegrationSettingsImpl integrationSettings;
     private AliasManager aliasManager;
-    private dev.lovelace.lovecore.npc.CitizensNpcProvider citizensNpc;
-    private dev.lovelace.lovecore.presence.CmiPresenceOracle cmiPresence;
     private final List<String> registered = new ArrayList<>();
 
     @Override
@@ -85,9 +82,6 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         combat.start();
         register(CombatState.class, combat, "CombatState");
 
-        integrationSettings = new dev.lovelace.lovecore.integration.IntegrationSettingsImpl(getLogger());
-        integrationSettings.load(getConfig());
-        register(dev.lovelace.lovecore.api.provider.IntegrationSettings.class, integrationSettings, "IntegrationSettings");
 
         notifySettingsStore = new NotifySettingsStore(this);
         notifySettingsStore.load();
@@ -182,10 +176,6 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         Bukkit.getServicesManager().unregisterAll(this);
     }
 
-    public dev.lovelace.lovecore.integration.IntegrationSettingsImpl getIntegrationSettings() {
-        return integrationSettings;
-    }
-
     public PhysicalEconomy getEconomy() {
         return economy;
     }
@@ -212,7 +202,6 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
         statBus.reload();
         taxOracle.reload();
         loveNotify.reload();
-        integrationSettings.load(getConfig());
         discordService.load();
         aliasRegistry.load();
         aliasManager.applyAll();
@@ -243,26 +232,6 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
                     reputationOracle = oracle;
                     register(ReputationOracle.class, oracle, "ReputationOracle");
                 });
-
-        // Контракты с несколькими реализациями: каждый плагин-потребитель выбирает свою в конфиге
-        // (LoveCore.provider). Адаптеры Citizens и CMI поднимаются, только если сосед включён;
-        // реализации LoveEssential регистрирует сам LoveEssential.
-        if (getServer().getPluginManager().isPluginEnabled("Citizens")) {
-            try {
-                citizensNpc = new dev.lovelace.lovecore.npc.CitizensNpcProvider(this);
-                citizensNpc.start();
-                register(dev.lovelace.lovecore.api.npc.NpcProvider.class, citizensNpc, "NpcProvider:citizens");
-            } catch (LinkageError incompatible) {
-                // Старая или переработанная версия Citizens без нужных классов: говорим вслух и идём дальше.
-                getLogger().warning("Citizens найден, но его API несовместим с ядром (" + incompatible
-                        + "): NpcProvider «citizens» недоступен.");
-                citizensNpc = null;
-            }
-        }
-        dev.lovelace.lovecore.presence.CmiPresenceOracle.link(getLogger()).ifPresent(oracle -> {
-            cmiPresence = oracle;
-            register(dev.lovelace.lovecore.api.presence.PresenceOracle.class, oracle, "PresenceOracle:cmi");
-        });
     }
 
     /** Отключает уже поднятые оракулы (если были) и пытается поднять их заново. */
@@ -281,17 +250,6 @@ public final class LoveCorePlugin extends JavaPlugin implements Listener {
             Bukkit.getServicesManager().unregister(ReputationOracle.class, reputationOracle);
             registered.remove("ReputationOracle");
             reputationOracle = null;
-        }
-        if (citizensNpc != null) {
-            Bukkit.getServicesManager().unregister(dev.lovelace.lovecore.api.npc.NpcProvider.class, citizensNpc);
-            org.bukkit.event.HandlerList.unregisterAll(citizensNpc);
-            registered.remove("NpcProvider:citizens");
-            citizensNpc = null;
-        }
-        if (cmiPresence != null) {
-            Bukkit.getServicesManager().unregister(dev.lovelace.lovecore.api.presence.PresenceOracle.class, cmiPresence);
-            registered.remove("PresenceOracle:cmi");
-            cmiPresence = null;
         }
         linkOracles();
     }

@@ -16,10 +16,10 @@ class ProvidersTest {
 
     @Test
     void picksTheProviderNamedInTheConfigAmongSeveral() {
-        var citizens = new Fake("citizens");
+        var citizens = new Fake("alpha");
         var essential = new Fake("loveessential");
         assertEquals(essential, Providers.choose(List.of(citizens, essential), "loveessential").orElseThrow());
-        assertEquals(citizens, Providers.choose(List.of(citizens, essential), "citizens").orElseThrow());
+        assertEquals(citizens, Providers.choose(List.of(citizens, essential), "alpha").orElseThrow());
     }
 
     @Test
@@ -30,10 +30,10 @@ class ProvidersTest {
 
     @Test
     void anUnknownOrMissingNameGivesNothingInsteadOfAnotherProvider() {
-        var citizens = new Fake("citizens");
-        assertTrue(Providers.choose(List.of(citizens), "cmi").isEmpty());
+        var citizens = new Fake("alpha");
+        assertTrue(Providers.choose(List.of(citizens), "gamma").isEmpty());
         assertTrue(Providers.choose(List.of(citizens), null).isEmpty());
-        assertTrue(Providers.choose(List.<Fake>of(), "citizens").isEmpty());
+        assertTrue(Providers.choose(List.<Fake>of(), "alpha").isEmpty());
     }
 
     @Test

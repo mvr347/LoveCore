@@ -7,8 +7,8 @@ import org.bukkit.event.player.PlayerEvent;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Игрок нажал на NPC. Одно и то же событие для любого провайдера: потребителю не нужно слушать
- * {@code NPCRightClickEvent} Citizens и события LoveEssential по отдельности.
+ * Игрок нажал на NPC. Общее событие для NPC: потребителю не нужно слушать внутренние события
+ * LoveEssential.
  *
  * <p>Событие приходит от всех провайдеров сразу; потребитель сверяет {@code npc().providerId()}
  * со своим конфигом и игнорирует чужие.</p>

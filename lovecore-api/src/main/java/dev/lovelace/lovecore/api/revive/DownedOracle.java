@@ -8,7 +8,7 @@ import java.util.UUID;
  * Состояние «ранен и ждёт помощи». Дуэли, охота и бой должны учитывать раненых: добивать
  * лежащего, засчитывать его как живого цель или начислять ему боевую метку нельзя.
  *
- * <p>Реализации: {@code reviveme} (поверх ReviveMe) и {@code loveessential} (модуль revive).</p>
+ * <p>Реализация одна: {@code loveessential} (модуль revive LoveEssential).</p>
  */
 public interface DownedOracle extends Named {
 
